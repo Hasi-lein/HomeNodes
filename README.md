@@ -1,0 +1,54 @@
+# HomeNodes
+
+Decentralized home automation with locally autonomous clients, a central
+controller, and a focus on energy management.
+
+## Project status
+
+This is an early-stage personal project. The architecture and hardware notes
+are evolving, and the ESP32 relay client is a development prototype. It has
+not yet been built or tested on hardware.
+
+## Current direction
+
+- A computer on a dedicated automation Wi-Fi network runs the controller
+  application in Docker, with a web frontend. PHP/Symfony is the current
+  preference.
+- ESP32 clients use C++ firmware and perform their local control
+  autonomously.
+- The controller discovers and configures clients over HTTPS/REST. Initial
+  authentication is HTTP Basic Authentication over TLS, using
+  device-specific credentials.
+- Client-to-client links should continue operating without the controller
+  after configuration.
+- A Raspberry Pi running Venus OS and Node-RED acts as a specialized Victron
+  client for the inverter, MPPT charge controller and Tibber-based charging
+  control.
+
+## Repository contents
+
+- [`Doku/miro_import.md`](Doku/miro_import.md) — editable English architecture
+  draft and hardware notes.
+- [`Doku/miro_export.pdf`](Doku/miro_export.pdf) — original Miro PDF export,
+  retained as a source reference. The original export is in German and includes
+  diagrams of the home's electrical installation.
+- [`client/esp32_relay/`](client/esp32_relay/) — first ESP32 HTTPS relay-client
+  prototype, setup instructions and example configuration.
+
+## ESP32 relay prototype
+
+The prototype currently exposes:
+
+- `GET /api/v1/capabilities`
+- `GET /api/v1/status`
+- `POST /api/v1/relay` with `{"state":"on"}` or `{"state":"off"}`
+
+See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup
+details. Do not commit `secrets.h`, private keys or real credentials.
+
+## Safety
+
+This repository is not an electrical installation plan. Have mains wiring,
+protection, battery installation and switching arrangements reviewed by a
+qualified electrician. Keep hardware safety limits local to each client;
+network commands must not bypass them.

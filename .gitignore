@@ -1,0 +1,17 @@
+# Local credentials and private configuration
+.env
+.env.*
+!.env.example
+**/secrets.h
+**/*.pem
+**/*.key
+
+# Arduino / ESP32 build output
+.pio/
+build/
+cmake-build-*/
+
+# Editor and operating-system files
+.DS_Store
+.vscode/
+.idea/
