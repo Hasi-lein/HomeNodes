@@ -246,10 +246,9 @@ functions and safe states remain the responsibility of each client.
 
 ### First prototype: ESP32 relay client
 
-The first client prototype is based on the existing ESP32-CAM sketch. Camera
-and PIR functionality are not used in this test. The ESP32 exposes HTTPS
-endpoints and initially reports its identity, firmware version and a
-controllable relay:
+The first client prototype is based on the existing relay sketch and targets a
+generic ESP32-WROOM-32 development board. It exposes HTTPS endpoints and
+initially reports its identity, firmware version and a controllable relay:
 
 - `GET /api/v1/capabilities` — client ID, firmware version and capabilities
 - `GET /api/v1/status` — current relay state
@@ -264,8 +263,14 @@ its mDNS address `<CLIENT_ID>.local` and advertises the HTTPS service on the
 local network.
 
 The sketch retains GPIO 13 and active-HIGH relay logic from the previous
-prototype. Verify this against the actual board and relay module. On an
-ESP32-CAM, GPIO 13 is also associated with the microSD interface.
+prototype. Verify this against the exact board pinout and relay module before
+use.
+
+The hardware photo shows an ESP32-WROOM-32 development board and a single
+relay module with `VCC`, `IN1` and `GND` control labels. The first API test
+uses only these two boards; no sensor is needed. Confirm the relay module's
+exact model, voltage requirements and trigger polarity before wiring or
+applying a load.
 
 ## 5. Open questions
 

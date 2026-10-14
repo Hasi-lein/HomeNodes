@@ -201,10 +201,11 @@ bool startHttpsServer() {
   }
 
   httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
-  config.servercert =
+  config.cacert_pem =
       reinterpret_cast<const uint8_t*>(TLS_CERTIFICATE_PEM);
-  config.servercert_len = std::strlen(TLS_CERTIFICATE_PEM) + 1;
-  config.prvtkey = reinterpret_cast<const uint8_t*>(TLS_PRIVATE_KEY_PEM);
+  config.cacert_len = std::strlen(TLS_CERTIFICATE_PEM) + 1;
+  config.prvtkey_pem =
+      reinterpret_cast<const uint8_t*>(TLS_PRIVATE_KEY_PEM);
   config.prvtkey_len = std::strlen(TLS_PRIVATE_KEY_PEM) + 1;
   config.port_secure = 443;
 

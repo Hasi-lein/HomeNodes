@@ -13,5 +13,6 @@ cmake-build-*/
 
 # Editor and operating-system files
 .DS_Store
-.vscode/
+/.vscode/*
+!/.vscode/extensions.json
 .idea/

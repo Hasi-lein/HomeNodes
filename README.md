@@ -32,8 +32,21 @@ not yet been built or tested on hardware.
 - [`Doku/miro_export.pdf`](Doku/miro_export.pdf) — original Miro PDF export,
   retained as a source reference. The original export is in German and includes
   diagrams of the home's electrical installation.
-- [`client/esp32_relay/`](client/esp32_relay/) — first ESP32 HTTPS relay-client
-  prototype, setup instructions and example configuration.
+- [`client/esp32_relay/`](client/esp32_relay/) — first ESP32-WROOM-32 HTTPS
+  relay-client prototype, setup instructions and example configuration.
+
+## ESP32 development in VS Code
+
+Install the **PlatformIO IDE** extension (`platformio.platformio-ide`) from
+the VS Code Extensions view. This repository recommends it automatically when
+opened in VS Code; accept the workspace recommendation if prompted. No
+additional VS Code extension is required for the current Arduino-framework
+PlatformIO projects.
+
+PlatformIO installs the selected ESP32 platform, compiler and framework
+packages when a project is built for the first time. Open an individual
+firmware project directory, such as `client/esp32_relay_blink`, to build,
+upload and monitor that board.
 
 ## ESP32 relay prototype
 
