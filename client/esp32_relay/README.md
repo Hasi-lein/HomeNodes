@@ -1,24 +1,31 @@
 # ESP32 relay client
 
-This sketch turns the existing ESP32-CAM relay prototype into a small HTTPS
-API server. It keeps the relay on GPIO 13 (active HIGH, as in the previous
-sketch), starts with the relay off, and does not initialize the camera or PIR
-sensor.
+This PlatformIO project turns the existing ESP32-CAM relay prototype into a
+small HTTPS API server. It keeps the relay on GPIO 13 (active HIGH, as in the
+previous sketch), starts with the relay off, and does not initialize the
+camera or PIR sensor.
 
 ## Configure and flash
 
-1. Use an ESP32 Arduino core that includes `esp_https_server` and mDNS support.
-2. Copy `secrets.example.h` to `secrets.h`.
-3. Set the automation WLAN, unique client ID, and a unique HTTP Basic Auth
+1. Install the PlatformIO IDE extension in VS Code.
+2. Open this `esp32_relay` directory as the PlatformIO project. The
+   `esp32cam` environment targets the AI-Thinker ESP32-CAM using the Arduino
+   framework.
+3. Copy `secrets.example.h` to `secrets.h`.
+4. Set the automation WLAN, unique client ID, and a unique HTTP Basic Auth
    username/password.
-4. Create a TLS certificate whose Subject Alternative Name matches
+5. Create a TLS certificate whose Subject Alternative Name matches
    `<CLIENT_ID>.local`, plus its private key. Paste the PEM contents into
    `TLS_CERTIFICATE_PEM` and `TLS_PRIVATE_KEY_PEM`. Keep `secrets.h` and the
    private key out of version control.
-5. Trust the device certificate (or its issuing CA) in the controller. Do not
+6. Trust the device certificate (or its issuing CA) in the controller. Do not
    disable certificate validation in the controller.
-6. Select the correct ESP32-CAM board and serial port in Arduino IDE, connect
-   by USB, and upload the sketch.
+7. Connect the board by USB (or a suitable USB-to-serial adapter), select the
+   `esp32cam` environment, and use PlatformIO's Build and Upload tasks. Use
+   Monitor to view the serial output at 115200 baud.
+
+The project source is in `src/main.cpp`. Add other ESP32 firmware as separate
+client directories, each with its own `platformio.ini`.
 
 The client advertises `_https._tcp` over mDNS and can be reached at
 `https://<CLIENT_ID>.local`. For TLS validation, the hostname used by the
