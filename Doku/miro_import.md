@@ -272,6 +272,57 @@ uses only these two boards; no sensor is needed. Confirm the relay module's
 exact model, voltage requirements and trigger polarity before wiring or
 applying a load.
 
+#### ESP32-WROOM-32 development board pinout
+
+Pin labels below are transcribed from the board photo. Orientation: hold the
+board with the antenna at the top and the USB connector at the bottom. The
+left and right columns are the pin rows as seen from the component side.
+`VP` and `VN` are also known as GPIO36 and GPIO39. The board's `D0`–`D3`,
+`CMD` and `CLK` pins are connected to the module's flash interface; do not use
+them as general-purpose GPIO.
+
+```text
+                 Antenna
+          ESP32-WROOM-32 module
+
+       LEFT PIN ROW       RIGHT PIN ROW
+       3V3                GND
+       EN                 GPIO23
+       VP / GPIO36        GPIO22
+       VN / GPIO39        TX / GPIO1
+       GPIO34             RX / GPIO3
+       GPIO35             GPIO21
+       GPIO32             GND
+       GPIO33             GPIO19
+       GPIO25             GPIO18
+       GPIO26             GPIO5
+       GPIO27             GPIO17
+       GPIO14             GPIO16
+       GPIO12             GPIO4
+       GND                GPIO0
+       GPIO13             GPIO2
+       D2 / GPIO9*        GPIO15
+       D3 / GPIO10*       D1 / GPIO8*
+       CMD / GPIO11*      D0 / GPIO7*
+       5V                 CLK / GPIO6*
+              USB connector
+
+       * Flash-interface pins: do not use for peripherals.
+```
+
+For the relay blink hardware test, the control-side wiring is:
+
+```text
+ESP32 3V3     -> relay VCC
+ESP32 GND     -> relay GND
+ESP32 GPIO13  -> relay IN1
+```
+
+This wiring assumes the relay board can be powered from 3.3 V and its input
+accepts 3.3 V logic. Verify the actual relay module markings and switching
+polarity. The pinout is specific to the photographed board variant; check the
+silkscreen on the actual board before wiring.
+
 ## 5. Open questions
 
 The following items are not yet specified by the source PDF or project notes:

@@ -19,6 +19,9 @@ the board/module markings and verify the actual behavior. If the relay is
 active LOW, change `RELAY_ON_LEVEL` to `LOW` and `RELAY_OFF_LEVEL` to `HIGH`
 in `src/main.cpp`.
 
+See the [documented ESP32-WROOM-32 board pinout](../../Doku/miro_import.md#esp32-wroom-32-development-board-pinout)
+for the photographed board's pin-row layout and flash-pin warning.
+
 Do not connect the infrared heater or any mains load during this test. Observe
 the relay indicator and listen for switching while the ESP32 is powered over
 USB. Disconnect USB immediately if the board or relay module heats up, smells
