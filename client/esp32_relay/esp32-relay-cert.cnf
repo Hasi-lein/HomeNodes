@@ -1,0 +1,16 @@
+[req]
+distinguished_name = dn
+x509_extensions = server_cert
+prompt = no
+
+[dn]
+CN = esp32-relay-01.local
+
+[server_cert]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = esp32-relay-01.local
