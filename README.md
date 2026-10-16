@@ -34,6 +34,8 @@ not yet been built or tested on hardware.
   diagrams of the home's electrical installation.
 - [`client/esp32_relay/`](client/esp32_relay/) — first ESP32-WROOM-32 HTTPS
   relay-client prototype, setup instructions and example configuration.
+- [`client/tests/`](client/tests/) — VS Code REST Client requests for exercising
+  client APIs locally.
 
 ## ESP32 development in VS Code
 

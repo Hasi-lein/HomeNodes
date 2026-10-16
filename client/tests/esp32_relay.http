@@ -1,0 +1,37 @@
+@host = esp32-relay-01.local
+@username = esp32-relay-01
+@password = {{$prompt 'ESP32 relay HTTP Basic Auth password'}}
+
+### Read client capabilities
+# @name capabilities
+GET https://{{host}}/api/v1/capabilities
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+### Read relay status
+# @name status
+GET https://{{host}}/api/v1/status
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+### Switch relay on
+# @name relayOn
+POST https://{{host}}/api/v1/relay
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "state": "on"
+}
+
+### Switch relay off
+# @name relayOff
+POST https://{{host}}/api/v1/relay
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "state": "off"
+}

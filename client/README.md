@@ -14,6 +14,7 @@ Current projects:
   ESP32-WROOM-32 development board.
 - [`esp32_relay_blink/`](esp32_relay_blink/) — standalone relay hardware test
   that switches every 500 ms without network or sensor functionality.
+- [`tests/`](tests/) — REST Client `.http` requests for local client API tests.
 
 Create future clients as sibling directories with their own `platformio.ini`,
 `src/main.cpp` and project-specific README. This keeps board settings,

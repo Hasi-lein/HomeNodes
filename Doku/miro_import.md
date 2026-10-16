@@ -172,6 +172,10 @@ actuators; required data can be exchanged directly between linked clients.
 - HTTPS/TLS protects credentials and data in transit. The dedicated Wi-Fi
   network provides an additional network boundary; it does not replace
   transport encryption.
+- During initial development, ESP32 clients may use locally generated
+  self-signed server certificates. The controller must explicitly trust each
+  certificate (or a future local CA) while keeping TLS peer and hostname
+  verification enabled. The URL hostname must match the certificate SAN.
 - OAuth 2.0 is deferred from the first implementation and may be considered
   later.
 
@@ -262,6 +266,13 @@ file and the private key must not be committed. The client is reachable via
 its mDNS address `<CLIENT_ID>.local` and advertises the HTTPS service on the
 local network.
 
+The initial TLS approach is a self-signed server certificate generated on the
+development computer. The controller must explicitly trust the certificate
+and verify the requested hostname against its SAN; certificate verification
+must not be disabled. A Dockerized controller must have access to the public
+certificate trust file. `.local` mDNS resolution from inside Docker may require
+additional host/network configuration.
+
 The sketch retains GPIO 13 and active-HIGH relay logic from the previous
 prototype. Verify this against the exact board pinout and relay module before
 use.
@@ -341,7 +352,8 @@ The following items are not yet specified by the source PDF or project notes:
 - Other charger models
 - Electrical protection and shutdown functions
 - Automation Wi-Fi segmentation and security details
-- TLS certificates and device-specific HTTPS Basic Auth credentials
+- TLS certificate renewal/trust distribution and device-specific HTTPS Basic
+  Auth credentials
 
 ## 6. Next steps
 
