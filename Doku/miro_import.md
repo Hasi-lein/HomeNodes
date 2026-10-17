@@ -257,19 +257,25 @@ board. Node-RED on Venus OS reads `com.victronenergy.system/0` at
 every 60 seconds by default and makes the relay decision locally; MQTT is not
 used in this initial design.
 
-The Node-RED endpoint returns a JSON object with numeric `voltage` and
-`updatedAt` (Unix milliseconds), or `503 Service Unavailable` if the cached
-sample is missing or older than 120 seconds. Node-RED must provide HTTPS and
-HTTP Basic Authentication for its HTTP In endpoint. The ESP32 trusts the
-configured server certificate/CA and verifies the hostname; do not disable
-TLS verification. Configure the endpoint URL, credentials and trusted PEM
-locally in `client/esp32_relay/secrets.h`; never commit that file.
+The Node-RED endpoint returns a JSON object with numeric `voltage`, integer
+`inverterMode` and `updatedAt` (Unix milliseconds), or `503 Service
+Unavailable` if either cached Victron value is missing or older than 120
+seconds. Node-RED must provide HTTPS and HTTP Basic Authentication for its
+HTTP In endpoint. The ESP32 trusts the configured server certificate/CA and
+verifies the hostname; do not disable TLS verification. Configure the endpoint
+URL, credentials and trusted PEM locally in `client/esp32_relay/secrets.h`;
+never commit that file.
 
 The ESP32 relay starts OFF and uses local hysteresis: ON at or above 53.8 V,
 OFF at or below 52.1 V, retaining its previous state between thresholds. Wi-Fi,
-HTTPS, authentication, stale-data and invalid-response failures switch it
-OFF. Voltage is an approximate indicator rather than a direct SOC reading;
-validate the thresholds and fail-safe behavior before enabling the heater.
+heating is permitted only from 06:00 through 23:59 local time (Europe/Berlin)
+and only when the VE.Bus mode is `2` (Inverter Only). Any other mode, an
+unsynchronized clock, Wi-Fi/HTTPS/authentication failure, stale data or an
+invalid response switches the relay OFF. The ESP32 uses the Fritz!Box at
+`192.168.178.1` as its only NTP source; no public NTP pool fallback is used.
+The Fritz!Box must provide NTP service on the LAN. Voltage is an approximate
+indicator rather than a direct SOC reading; validate the thresholds and
+fail-safe behavior before enabling the heater.
 The sketch retains GPIO 13 and active-HIGH relay logic. Verify this against
 the exact board pinout and relay module before use.
 

@@ -15,6 +15,8 @@ Current projects:
   locally.
 - [`esp32_relay_blink/`](esp32_relay_blink/) — standalone relay hardware test
   that switches every 500 ms without network or sensor functionality.
+- [`node-red/`](node-red/) — Venus OS Node-RED flow serving current Victron
+  battery voltage and inverter mode to clients.
 - [`tests/`](tests/) — REST Client `.http` requests for testing the Node-RED
   voltage endpoint.
 

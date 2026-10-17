@@ -12,8 +12,12 @@ MQTT.
 - Turn the relay **ON** at or above 53.8 V.
 - Turn the relay **OFF** at or below 52.1 V.
 - Retain the previous relay state between the two thresholds.
+- Permit heating only from 06:00 through 23:59 local time (Europe/Berlin).
+- Permit heating only when the Victron VE.Bus mode is `2` (Inverter Only).
+  Other modes, including `3` (On/charging), force the relay OFF.
 - Start with the relay OFF. If Wi-Fi, TLS, HTTP, or response validation fails,
   switch OFF (fail-safe).
+- Keep the relay OFF if the local clock has not synchronized.
 - Reject voltage values outside the broad sanity range of 30–65 V.
 
 These are the voltage thresholds selected for the initial test. Battery
@@ -27,8 +31,10 @@ infrared heater.
 2. Open this `esp32_relay` directory as a PlatformIO project. The `esp32dev`
    environment targets a generic ESP32-WROOM-32 development board.
 3. Copy `secrets_template.h` to `secrets.h`.
-4. Set the Wi-Fi SSID/password, Node-RED HTTPS URL, Node-RED HTTP Basic Auth
-   credentials, and polling interval.
+4. Set the Wi-Fi SSID/password, NTP server, Node-RED HTTPS URL, Node-RED HTTP
+   Basic Auth credentials, and polling interval. The default NTP server is
+   `192.168.178.1` (Fritz!Box); no public NTP fallback is configured. The
+   router must provide NTP on the local network.
 5. Paste the **complete PEM** for the Node-RED server certificate or issuing
    CA into `NODERED_CA_CERTIFICATE_PEM`, including the
    `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` lines.
@@ -63,6 +69,18 @@ Unavailable` when it has no recent Victron voltage sample (the example flow
 uses a 120-second freshness limit). Configure the HTTP In endpoint to use
 HTTPS and HTTP Basic Authentication. The ESP32 trusts the configured
 certificate/CA and checks the hostname; do not use insecure TLS options.
+The response must also include integer `inverterMode` (Victron `/Mode`).
+Heating is allowed only for value `2`; missing, stale or other mode values
+keep the relay OFF.
+
+## Clock synchronization and operating window
+
+The ESP32 synchronizes time using NTP on the router at `NTP_SERVER` (default
+`192.168.178.1`) and uses the `Europe/Berlin` daylight-saving rules. It does
+not fall back to a public NTP pool. Confirm that the Fritz!Box answers NTP
+requests on the LAN; until time is valid, the relay remains OFF. Heating is
+allowed during hours 06 through 23, inclusive, and is disabled at midnight
+until 06:00.
 
 The ESP32 sends its Basic Auth credentials on every poll. Use dedicated
 credentials for this endpoint and keep them private.

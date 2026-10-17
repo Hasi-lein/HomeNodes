@@ -38,8 +38,8 @@ not yet been built or tested on hardware.
   prototype; polls Venus OS Node-RED for voltage and runs relay logic locally.
 - [`client/tests/`](client/tests/) — VS Code REST Client requests for exercising
   client APIs locally.
-- [`controller/node-red/`](controller/node-red/) — importable Node-RED flow
-  serving fresh Victron battery voltage to the ESP32 and setup notes.
+- [`client/node-red/`](client/node-red/) — Node-RED client flow on Venus OS;
+  serves fresh Victron battery voltage and inverter mode to the ESP32.
 
 ## ESP32 development in VS Code
 
@@ -58,8 +58,9 @@ upload and monitor that board.
 
 The ESP32 polls the Node-RED endpoint
 `GET /homenodes/v1/battery-voltage` over verified HTTPS. It applies local
-hysteresis (ON at 53.8 V, OFF at 52.1 V) and fails OFF when a valid fresh
-measurement cannot be read.
+hysteresis (ON at 53.8 V, OFF at 52.1 V), permits heating only 06:00–23:59
+Europe/Berlin and only in Victron VE.Bus mode 2 (Inverter Only), and fails OFF
+when time or fresh Victron data is unavailable.
 
 See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup
 details. Do not commit `secrets.h`, private keys or real credentials.

@@ -1,10 +1,10 @@
 # Node-RED flows
 
-## Venus OS battery-voltage endpoint
+## Venus OS Victron-state endpoint
 
 Import [`ir_heater_voltage_relay.json`](ir_heater_voltage_relay.json) into the
-Node-RED editor on Venus OS. The flow only publishes the latest Victron battery
-voltage; the ESP32 owns the relay hysteresis and switching logic. It does not
+Node-RED editor on Venus OS. The flow only publishes the latest Victron battery voltage and VE.Bus mode;
+the ESP32 owns the relay hysteresis and switching logic. It does not
 replace or modify the existing Tibber charging flow.
 
 The flow reads `com.victronenergy.system/0` at `/Dc/Battery/Voltage`, caches
@@ -23,9 +23,17 @@ A successful response is JSON:
 }
 ```
 
-`updatedAt` is the sample time as Unix milliseconds. The endpoint returns
-`503 Service Unavailable` if there is no sample or it is older than 120
-seconds. The flow ignores non-numeric values and values outside 30–65 V.
+`updatedAt` is the response time as Unix milliseconds. `inverterMode` is the
+VE.Bus `/Mode` integer. Mode `2` is Inverter Only and is the sole mode that
+permits heating; mode `3` (`On`), Charger Only, and Off inhibit it. The endpoint
+returns `503 Service Unavailable` if either Victron value is missing or older
+than 120 seconds. The flow ignores non-numeric battery readings, voltages
+outside 30–65 V, and invalid mode values.
+
+The ESP32 polls this endpoint and applies both the 06:00–23:59 Europe/Berlin
+time window and the mode-2 requirement locally, together with its voltage
+hysteresis. The Venus OS Raspberry Pi remains a client/data provider; it is
+not the project controller.
 
 ### Secure the endpoint
 

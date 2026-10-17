@@ -11,9 +11,9 @@ for the Node-RED battery-voltage endpoint on Venus OS.
 3. Change the hostname if needed, then use **Send Request**.
 4. Enter the Node-RED HTTP Basic Auth username and password when prompted.
 
-The endpoint should return `200 OK` and a JSON object containing `voltage` and
-`updatedAt` when a recent Victron measurement is available. A missing or stale
-sample returns `503 Service Unavailable`.
+The endpoint should return `200 OK` and a JSON object containing `voltage`,
+`inverterMode` and `updatedAt` when recent Victron readings are available. A
+missing or stale reading returns `503 Service Unavailable`.
 
 ## TLS verification
 

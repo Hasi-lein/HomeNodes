@@ -52,6 +52,56 @@
         ]
     },
     {
+        "id": "ir_victron_inverter_mode",
+        "type": "victron-input-vebus",
+        "z": "ir_heater_voltage_relay",
+        "service": "com.victronenergy.vebus/289",
+        "path": "/Mode",
+        "serviceObj": {
+            "service": "com.victronenergy.vebus/289",
+            "name": "MultiPlus-II 48/15000/200-100 (289)"
+        },
+        "pathObj": {
+            "path": "/Mode",
+            "type": "enum",
+            "name": "Switch Position",
+            "enum": {
+                "1": "Charger Only",
+                "2": "Inverter Only",
+                "3": "On",
+                "4": "Off"
+            }
+        },
+        "initial": "",
+        "name": "Victron inverter mode",
+        "onlyChanges": false,
+        "x": 200,
+        "y": 200,
+        "wires": [
+            [
+                "ir_cache_inverter_mode"
+            ]
+        ]
+    },
+    {
+        "id": "ir_cache_inverter_mode",
+        "type": "function",
+        "z": "ir_heater_voltage_relay",
+        "name": "Cache inverter mode",
+        "func": "const mode = Number(msg.payload);\nif (!Number.isInteger(mode) || mode < 1 || mode > 4) {\n    node.warn(\"Ignoring invalid Victron inverter mode: \" + msg.payload);\n    return null;\n}\n\nflow.set(\"inverterMode\", mode);\nflow.set(\"inverterModeUpdatedAt\", Date.now());\nnode.status({ fill: mode === 2 ? \"green\" : \"yellow\", shape: \"dot\", text: \"Mode \" + mode });\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 470,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
         "id": "ir_voltage_http_in",
         "type": "http in",
         "z": "ir_heater_voltage_relay",
@@ -73,7 +123,7 @@
         "type": "function",
         "z": "ir_heater_voltage_relay",
         "name": "Require recent sample",
-        "func": "const MAX_AGE_MS = 120000;\nconst voltage = flow.get(\"batteryVoltage\");\nconst updatedAt = flow.get(\"batteryVoltageUpdatedAt\");\nconst ageMs = Date.now() - updatedAt;\n\nmsg.headers = { \"Content-Type\": \"application/json\" };\nif (!Number.isFinite(voltage) || !Number.isFinite(updatedAt) || ageMs < 0 || ageMs > MAX_AGE_MS) {\n    msg.statusCode = 503;\n    msg.payload = { error: \"battery_voltage_unavailable\" };\n    return msg;\n}\n\nmsg.statusCode = 200;\nmsg.payload = { voltage: voltage, updatedAt: updatedAt };\nreturn msg;",
+        "func": "const MAX_AGE_MS = 120000;\nconst now = Date.now();\nconst voltage = flow.get(\"batteryVoltage\");\nconst voltageUpdatedAt = flow.get(\"batteryVoltageUpdatedAt\");\nconst mode = flow.get(\"inverterMode\");\nconst modeUpdatedAt = flow.get(\"inverterModeUpdatedAt\");\nconst voltageAgeMs = now - voltageUpdatedAt;\nconst modeAgeMs = now - modeUpdatedAt;\n\nmsg.headers = { \"Content-Type\": \"application/json\" };\nif (!Number.isFinite(voltage) || !Number.isFinite(voltageUpdatedAt) || voltageAgeMs < 0 || voltageAgeMs > MAX_AGE_MS || !Number.isInteger(mode) || mode < 1 || mode > 4 || !Number.isFinite(modeUpdatedAt) || modeAgeMs < 0 || modeAgeMs > MAX_AGE_MS) {\n    msg.statusCode = 503;\n    msg.payload = { error: \"victron_data_unavailable\" };\n    return msg;\n}\n\nmsg.statusCode = 200;\nmsg.payload = { voltage: voltage, inverterMode: mode, updatedAt: now };\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -81,7 +131,7 @@
         "finalize": "",
         "libs": [],
         "x": 470,
-        "y": 260,
+        "y": 300,
         "wires": [
             [
                 "ir_voltage_http_response"
@@ -96,7 +146,7 @@
         "statusCode": "",
         "headers": {},
         "x": 760,
-        "y": 260,
+        "y": 300,
         "wires": []
     }
 ]

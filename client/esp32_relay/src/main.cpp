@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 
 #include <cmath>
+#include <ctime>
 
 #include "secrets.h"
 
@@ -19,6 +20,11 @@ constexpr float MIN_VALID_BATTERY_V = 30.0F;
 constexpr float MAX_VALID_BATTERY_V = 65.0F;
 constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr uint16_t HTTP_TIMEOUT_MS = 5000;
+constexpr int FIRST_ALLOWED_HOUR = 6;
+constexpr int LAST_ALLOWED_HOUR = 23;
+constexpr int INVERTER_ONLY_MODE = 2;
+constexpr time_t MIN_VALID_EPOCH = 1704067200;
+constexpr char TIME_ZONE[] = "CET-1CEST,M3.5.0,M10.5.0/3";
 
 bool relayIsOn = false;
 bool wasWiFiConnected = false;
@@ -27,18 +33,42 @@ unsigned long lastPollAt = 0;
 unsigned long lastWiFiRetryAt = 0;
 
 void setRelay(bool enabled) {
+  if (relayIsOn == enabled) {
+    return;
+  }
+
   relayIsOn = enabled;
   digitalWrite(RELAY_PIN, relayIsOn ? RELAY_ON_LEVEL : RELAY_OFF_LEVEL);
   Serial.printf("Relay %s\n", relayIsOn ? "ON" : "OFF");
 }
 
 void failSafeOff(const char* reason) {
-  Serial.printf("Battery voltage unavailable; fail-safe: relay OFF (%s)\n",
-                reason);
+  if (relayIsOn) {
+    Serial.printf("Fail-safe: relay OFF (%s)\n", reason);
+  }
   setRelay(false);
 }
 
-bool readBatteryVoltage(float& voltage) {
+bool getLocalTime(struct tm& localTime) {
+  const time_t now = time(nullptr);
+  if (now < MIN_VALID_EPOCH) {
+    return false;
+  }
+
+  return localtime_r(&now, &localTime) != nullptr;
+}
+
+bool isWithinHeatingWindow() {
+  struct tm localTime;
+  if (!getLocalTime(localTime)) {
+    return false;
+  }
+
+  return localTime.tm_hour >= FIRST_ALLOWED_HOUR &&
+         localTime.tm_hour <= LAST_ALLOWED_HOUR;
+}
+
+bool readVictronState(float& voltage, int& inverterMode) {
   WiFiClientSecure tlsClient;
   tlsClient.setCACert(NODERED_CA_CERTIFICATE_PEM);
 
@@ -85,18 +115,52 @@ bool readBatteryVoltage(float& voltage) {
     return false;
   }
 
+  if (!response["inverterMode"].is<int>()) {
+    Serial.println("Node-RED response has no integer inverterMode field.");
+    return false;
+  }
+
+  inverterMode = response["inverterMode"].as<int>();
+  if (inverterMode < 1 || inverterMode > 4) {
+    Serial.printf("Rejected invalid Victron inverter mode: %d\n",
+                  inverterMode);
+    return false;
+  }
+
   return true;
 }
 
-void applyVoltageHysteresis(float voltage) {
+void applyRelayLogic(float voltage, int inverterMode) {
+  struct tm localTime;
+  if (!getLocalTime(localTime)) {
+    setRelay(false);
+    Serial.println("Relay inhibited: NTP clock is not synchronized.");
+    return;
+  }
+
+  if (localTime.tm_hour < FIRST_ALLOWED_HOUR ||
+      localTime.tm_hour > LAST_ALLOWED_HOUR) {
+    setRelay(false);
+    Serial.printf("Relay inhibited: local time %02d:%02d is outside 06:00-23:59.\n",
+                  localTime.tm_hour, localTime.tm_min);
+    return;
+  }
+
+  if (inverterMode != INVERTER_ONLY_MODE) {
+    setRelay(false);
+    Serial.printf("Relay inhibited: Victron mode %d is not Inverter Only.\n",
+                  inverterMode);
+    return;
+  }
+
   if (voltage >= RELAY_TURN_ON_V) {
     setRelay(true);
   } else if (voltage <= RELAY_TURN_OFF_V) {
     setRelay(false);
   }
 
-  Serial.printf("Battery voltage: %.2f V; relay %s\n", voltage,
-                relayIsOn ? "ON" : "OFF");
+  Serial.printf("Battery voltage: %.2f V; Victron mode: %d; relay %s\n",
+                voltage, inverterMode, relayIsOn ? "ON" : "OFF");
 }
 
 void pollNodeRed() {
@@ -108,12 +172,13 @@ void pollNodeRed() {
   }
 
   float voltage = 0.0F;
-  if (!readBatteryVoltage(voltage)) {
+  int inverterMode = 0;
+  if (!readVictronState(voltage, inverterMode)) {
     failSafeOff("HTTPS request or response validation failed");
     return;
   }
 
-  applyVoltageHysteresis(voltage);
+  applyRelayLogic(voltage, inverterMode);
 }
 
 }  // namespace
@@ -130,8 +195,10 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  Serial.printf("Starting %s; polling Node-RED every %lu ms.\n", CLIENT_ID,
-                static_cast<unsigned long>(POLL_INTERVAL_MS));
+  Serial.printf(
+      "Starting %s; polling Node-RED every %lu ms; NTP server: %s; "
+      "heating window: 06:00-23:59 Europe/Berlin.\n",
+      CLIENT_ID, static_cast<unsigned long>(POLL_INTERVAL_MS), NTP_SERVER);
 }
 
 void loop() {
@@ -150,6 +217,12 @@ void loop() {
   } else if (!wasWiFiConnected) {
     wasWiFiConnected = true;
     hasPolledSinceWiFiConnect = false;
+    configTzTime(TIME_ZONE, NTP_SERVER);
+    Serial.printf("Started time synchronization with %s.\n", NTP_SERVER);
+  }
+
+  if (relayIsOn && !isWithinHeatingWindow()) {
+    failSafeOff("outside heating hours or clock is not synchronized");
   }
 
   if (wifiConnected &&

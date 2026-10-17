@@ -8,6 +8,9 @@
 // Use only letters, digits, and hyphens.
 #define CLIENT_ID "esp32-relay-01"
 
+// The ESP32 uses the Fritz!Box as its only NTP source (UDP port 123).
+#define NTP_SERVER "192.168.178.1"
+
 #define NODERED_BATTERY_VOLTAGE_URL \
   "https://venus.local:1881/homenodes/v1/battery-voltage"
 #define NODERED_HTTP_USER "esp32-relay-01"
