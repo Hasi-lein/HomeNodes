@@ -1,10 +1,10 @@
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <esp_https_server.h>
-#include <mbedtls/base64.h>
+#include <WiFiClientSecure.h>
 
-#include <cstring>
-#include <cstdio>
+#include <cmath>
 
 #include "secrets.h"
 
@@ -13,243 +13,107 @@ namespace {
 constexpr uint8_t RELAY_PIN = 13;
 constexpr uint8_t RELAY_ON_LEVEL = HIGH;
 constexpr uint8_t RELAY_OFF_LEVEL = LOW;
-constexpr char FIRMWARE_VERSION[] = "0.1.0";
-constexpr size_t MAX_AUTH_HEADER_LENGTH = 160;
-constexpr size_t MAX_REQUEST_BODY_LENGTH = 128;
+constexpr float RELAY_TURN_ON_V = 53.8F;
+constexpr float RELAY_TURN_OFF_V = 52.1F;
+constexpr float MIN_VALID_BATTERY_V = 30.0F;
+constexpr float MAX_VALID_BATTERY_V = 65.0F;
+constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
+constexpr uint16_t HTTP_TIMEOUT_MS = 5000;
 
-httpd_handle_t httpsServer = nullptr;
 bool relayIsOn = false;
-String basicAuthHeader;
+bool wasWiFiConnected = false;
+bool hasPolledSinceWiFiConnect = false;
+unsigned long lastPollAt = 0;
+unsigned long lastWiFiRetryAt = 0;
 
-void sendJson(httpd_req_t* request, const char* status, const char* body) {
-  httpd_resp_set_status(request, status);
-  httpd_resp_set_type(request, "application/json");
-  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-  httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN);
-}
-
-bool isAuthorized(httpd_req_t* request) {
-  const size_t headerLength =
-      httpd_req_get_hdr_value_len(request, "Authorization");
-  if (headerLength == 0 || headerLength >= MAX_AUTH_HEADER_LENGTH) {
-    return false;
-  }
-
-  char header[MAX_AUTH_HEADER_LENGTH];
-  if (httpd_req_get_hdr_value_str(request, "Authorization", header,
-                                  sizeof(header)) != ESP_OK) {
-    return false;
-  }
-
-  if (basicAuthHeader.length() != headerLength) {
-    return false;
-  }
-
-  uint8_t difference = 0;
-  for (size_t i = 0; i < headerLength; ++i) {
-    difference |= static_cast<uint8_t>(
-        header[i] ^ basicAuthHeader.charAt(i));
-  }
-  return difference == 0;
-}
-
-bool requireAuthorization(httpd_req_t* request) {
-  if (isAuthorized(request)) {
-    return true;
-  }
-
-  httpd_resp_set_status(request, "401 Unauthorized");
-  httpd_resp_set_hdr(request, "WWW-Authenticate", "Basic realm=\"ESP32 relay\"");
-  httpd_resp_set_type(request, "application/json");
-  httpd_resp_sendstr(request, "{\"error\":\"unauthorized\"}");
-  return false;
-}
-
-esp_err_t capabilitiesHandler(httpd_req_t* request) {
-  if (!requireAuthorization(request)) {
-    return ESP_OK;
-  }
-
-  char response[256];
-  std::snprintf(response, sizeof(response),
-                "{\"clientId\":\"%s\",\"firmwareVersion\":\"%s\","
-                "\"capabilities\":[{\"id\":\"relay-1\",\"type\":\"relay\","
-                "\"commands\":[\"on\",\"off\"]}]}",
-                CLIENT_ID, FIRMWARE_VERSION);
-  sendJson(request, "200 OK", response);
-  return ESP_OK;
-}
-
-esp_err_t statusHandler(httpd_req_t* request) {
-  if (!requireAuthorization(request)) {
-    return ESP_OK;
-  }
-
-  char response[160];
-  std::snprintf(response, sizeof(response),
-                "{\"clientId\":\"%s\",\"firmwareVersion\":\"%s\","
-                "\"relay\":{\"id\":\"relay-1\",\"state\":\"%s\"}}",
-                CLIENT_ID, FIRMWARE_VERSION, relayIsOn ? "on" : "off");
-  sendJson(request, "200 OK", response);
-  return ESP_OK;
-}
-
-bool readRequestedRelayState(httpd_req_t* request, bool& requestedState) {
-  if (request->content_len == 0 ||
-      request->content_len > MAX_REQUEST_BODY_LENGTH) {
-    return false;
-  }
-
-  char body[MAX_REQUEST_BODY_LENGTH + 1];
-  size_t received = 0;
-  while (received < request->content_len) {
-    const int result = httpd_req_recv(
-        request, body + received, request->content_len - received);
-    if (result <= 0) {
-      return false;
-    }
-    received += static_cast<size_t>(result);
-  }
-  body[received] = '\0';
-
-  const char* cursor = body;
-  const auto skipWhitespace = [&cursor]() {
-    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
-           *cursor == '\n') {
-      ++cursor;
-    }
-  };
-
-  skipWhitespace();
-  if (*cursor++ != '{') {
-    return false;
-  }
-  skipWhitespace();
-  if (std::strncmp(cursor, "\"state\"", 7) != 0) {
-    return false;
-  }
-  cursor += 7;
-  skipWhitespace();
-  if (*cursor++ != ':') {
-    return false;
-  }
-  skipWhitespace();
-  if (*cursor++ != '"') {
-    return false;
-  }
-
-  if (std::strncmp(cursor, "on\"", 3) == 0) {
-    requestedState = true;
-    cursor += 3;
-  } else if (std::strncmp(cursor, "off\"", 4) == 0) {
-    requestedState = false;
-    cursor += 4;
-  } else {
-    return false;
-  }
-
-  skipWhitespace();
-  if (*cursor++ != '}') {
-    return false;
-  }
-  skipWhitespace();
-  return *cursor == '\0';
-}
-
-esp_err_t relayHandler(httpd_req_t* request) {
-  if (!requireAuthorization(request)) {
-    return ESP_OK;
-  }
-
-  bool requestedState = false;
-  if (!readRequestedRelayState(request, requestedState)) {
-    sendJson(request, "400 Bad Request",
-             "{\"error\":\"expected JSON body with state on or off\"}");
-    return ESP_OK;
-  }
-
-  relayIsOn = requestedState;
+void setRelay(bool enabled) {
+  relayIsOn = enabled;
   digitalWrite(RELAY_PIN, relayIsOn ? RELAY_ON_LEVEL : RELAY_OFF_LEVEL);
-  statusHandler(request);
-  return ESP_OK;
+  Serial.printf("Relay %s\n", relayIsOn ? "ON" : "OFF");
 }
 
-bool createBasicAuthHeader() {
-  const String credentials = String(HTTP_BASIC_USER) + ":" + HTTP_BASIC_PASSWORD;
-  unsigned char encoded[2 * MAX_AUTH_HEADER_LENGTH];
-  size_t encodedLength = 0;
-  const int result = mbedtls_base64_encode(
-      encoded, sizeof(encoded), &encodedLength,
-      reinterpret_cast<const unsigned char*>(credentials.c_str()),
-      credentials.length());
-  if (result != 0 || encodedLength + 7 >= MAX_AUTH_HEADER_LENGTH) {
-    Serial.println("HTTP Basic Auth credentials are invalid or too long.");
+void failSafeOff(const char* reason) {
+  Serial.printf("Battery voltage unavailable; fail-safe: relay OFF (%s)\n",
+                reason);
+  setRelay(false);
+}
+
+bool readBatteryVoltage(float& voltage) {
+  WiFiClientSecure tlsClient;
+  tlsClient.setCACert(NODERED_CA_CERTIFICATE_PEM);
+
+  HTTPClient http;
+  http.setConnectTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(HTTP_TIMEOUT_MS);
+
+  if (!http.begin(tlsClient, NODERED_BATTERY_VOLTAGE_URL)) {
+    Serial.println("Could not initialize HTTPS request to Node-RED.");
     return false;
   }
 
-  encoded[encodedLength] = '\0';
-  basicAuthHeader = "Basic ";
-  basicAuthHeader += reinterpret_cast<const char*>(encoded);
+  http.setAuthorization(NODERED_HTTP_USER, NODERED_HTTP_PASSWORD);
+  http.addHeader("Accept", "application/json");
+
+  const int statusCode = http.GET();
+  if (statusCode != HTTP_CODE_OK) {
+    Serial.printf("Node-RED HTTPS request failed with status %d.\n",
+                  statusCode);
+    http.end();
+    return false;
+  }
+
+  JsonDocument response;
+  const DeserializationError error = deserializeJson(response, http.getStream());
+  http.end();
+
+  if (error) {
+    Serial.printf("Invalid JSON from Node-RED: %s\n", error.c_str());
+    return false;
+  }
+
+  if (!response["voltage"].is<float>() &&
+      !response["voltage"].is<double>() &&
+      !response["voltage"].is<int>()) {
+    Serial.println("Node-RED response has no numeric voltage field.");
+    return false;
+  }
+
+  voltage = response["voltage"].as<float>();
+  if (!std::isfinite(voltage) || voltage < MIN_VALID_BATTERY_V ||
+      voltage > MAX_VALID_BATTERY_V) {
+    Serial.printf("Rejected out-of-range battery voltage: %.2f V\n", voltage);
+    return false;
+  }
+
   return true;
 }
 
-bool startHttpsServer() {
-  if (std::strlen(TLS_CERTIFICATE_PEM) == 0 ||
-      std::strlen(TLS_PRIVATE_KEY_PEM) == 0) {
-    Serial.println("HTTPS certificate/key are missing; server not started.");
-    return false;
+void applyVoltageHysteresis(float voltage) {
+  if (voltage >= RELAY_TURN_ON_V) {
+    setRelay(true);
+  } else if (voltage <= RELAY_TURN_OFF_V) {
+    setRelay(false);
   }
 
-  httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
-  config.cacert_pem =
-      reinterpret_cast<const uint8_t*>(TLS_CERTIFICATE_PEM);
-  config.cacert_len = std::strlen(TLS_CERTIFICATE_PEM) + 1;
-  config.prvtkey_pem =
-      reinterpret_cast<const uint8_t*>(TLS_PRIVATE_KEY_PEM);
-  config.prvtkey_len = std::strlen(TLS_PRIVATE_KEY_PEM) + 1;
-  config.port_secure = 443;
-
-  if (httpd_ssl_start(&httpsServer, &config) != ESP_OK) {
-    Serial.println("Could not start HTTPS server.");
-    httpsServer = nullptr;
-    return false;
-  }
-
-  const httpd_uri_t capabilitiesUri = {
-      "/api/v1/capabilities", HTTP_GET, capabilitiesHandler, nullptr};
-  const httpd_uri_t statusUri = {
-      "/api/v1/status", HTTP_GET, statusHandler, nullptr};
-  const httpd_uri_t relayUri = {
-      "/api/v1/relay", HTTP_POST, relayHandler, nullptr};
-
-  const bool routesRegistered =
-      httpd_register_uri_handler(httpsServer, &capabilitiesUri) == ESP_OK &&
-      httpd_register_uri_handler(httpsServer, &statusUri) == ESP_OK &&
-      httpd_register_uri_handler(httpsServer, &relayUri) == ESP_OK;
-  if (!routesRegistered) {
-    Serial.println("Could not register HTTPS API routes.");
-    httpd_ssl_stop(httpsServer);
-    httpsServer = nullptr;
-    return false;
-  }
-
-  Serial.println("HTTPS API listening on port 443.");
-  return true;
+  Serial.printf("Battery voltage: %.2f V; relay %s\n", voltage,
+                relayIsOn ? "ON" : "OFF");
 }
 
-void connectToWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(CLIENT_ID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.printf("Connecting to Wi-Fi %s", WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+void pollNodeRed() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (relayIsOn) {
+      failSafeOff("Wi-Fi disconnected");
+    }
+    return;
   }
 
-  Serial.printf("\nConnected. IP address: %s\n",
-                WiFi.localIP().toString().c_str());
+  float voltage = 0.0F;
+  if (!readBatteryVoltage(voltage)) {
+    failSafeOff("HTTPS request or response validation failed");
+    return;
+  }
+
+  applyVoltageHysteresis(voltage);
 }
 
 }  // namespace
@@ -257,34 +121,43 @@ void connectToWiFi() {
 void setup() {
   Serial.begin(115200);
 
-  pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_OFF_LEVEL);
+  pinMode(RELAY_PIN, OUTPUT);
   relayIsOn = false;
 
-  if (!createBasicAuthHeader()) {
-    return;
-  }
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(CLIENT_ID);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  connectToWiFi();
-  if (MDNS.begin(CLIENT_ID)) {
-    MDNS.addService("https", "tcp", 443);
-    Serial.printf("mDNS hostname: %s.local\n", CLIENT_ID);
-  } else {
-    Serial.println("Could not start mDNS discovery.");
-  }
-
-  startHttpsServer();
+  Serial.printf("Starting %s; polling Node-RED every %lu ms.\n", CLIENT_ID,
+                static_cast<unsigned long>(POLL_INTERVAL_MS));
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    static unsigned long lastReconnectAttempt = 0;
-    if (millis() - lastReconnectAttempt >= 10000) {
-      lastReconnectAttempt = millis();
+  const unsigned long now = millis();
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  if (!wifiConnected) {
+    if (relayIsOn) {
+      failSafeOff("Wi-Fi disconnected");
+    }
+    wasWiFiConnected = false;
+    hasPolledSinceWiFiConnect = false;
+    if (now - lastWiFiRetryAt >= WIFI_RETRY_INTERVAL_MS) {
+      lastWiFiRetryAt = now;
       WiFi.reconnect();
     }
-    delay(100);
-    return;
+  } else if (!wasWiFiConnected) {
+    wasWiFiConnected = true;
+    hasPolledSinceWiFiConnect = false;
   }
-  delay(1000);
+
+  if (wifiConnected &&
+      (!hasPolledSinceWiFiConnect || now - lastPollAt >= POLL_INTERVAL_MS)) {
+    lastPollAt = now;
+    hasPolledSinceWiFiConnect = true;
+    pollNodeRed();
+  }
+
+  delay(20);
 }

@@ -1,37 +1,34 @@
-# Client API tests
+# Node-RED endpoint test
 
-The `esp32_relay.http` file contains Visual Studio Code REST Client requests
-for the ESP32 relay client's HTTPS API.
+The `esp32_relay.http` file contains a Visual Studio Code REST Client request
+for the Node-RED battery-voltage endpoint on Venus OS.
 
-## Run the requests
+## Run the request
 
 1. Install the VS Code extension **REST Client**
    (`humao.rest-client`) if needed.
 2. Open `esp32_relay.http`.
-3. Use **Send Request** above a request.
-4. Enter the relay's HTTP Basic Auth password when prompted.
+3. Change the hostname if needed, then use **Send Request**.
+4. Enter the Node-RED HTTP Basic Auth username and password when prompted.
 
-The target hostname and username are defined at the top of the request file.
-Change them if the ESP32's `CLIENT_ID` or HTTP Basic Auth username differs.
-The `on` and `off` requests switch the relay; leave the heater and mains loads
-disconnected during initial testing.
+The endpoint should return `200 OK` and a JSON object containing `voltage` and
+`updatedAt` when a recent Victron measurement is available. A missing or stale
+sample returns `503 Service Unavailable`.
 
-## TLS verification warning
+## TLS verification
 
 The current REST Client extension implementation sends HTTPS requests without
 validating the server certificate (`rejectUnauthorized` is disabled in its
-HTTP client). Therefore, these requests are useful for local API/relay
-functional testing, but they do **not** verify the ESP32's self-signed
-certificate or hostname. A successful request does not establish that TLS
-certificate validation is working.
+HTTP client). A successful request therefore does **not** verify TLS trust or
+hostname validation.
 
-To test certificate trust and hostname validation, use a client that supports
-a custom CA/certificate while keeping verification enabled, for example:
+To verify the Node-RED certificate and hostname, use a client configured with
+the correct trusted certificate/CA, for example:
 
 ```sh
-curl --cacert client/esp32_relay/esp32-relay-cert.pem \
-  -u esp32-relay-01 \
-  https://esp32-relay-01.local/api/v1/status
+curl --cacert venus-node-red-ca.pem \
+  -u ESP32_USER \
+  https://venus.local:1881/homenodes/v1/battery-voltage
 ```
 
 `curl` prompts for the password if it is not supplied after `-u`.

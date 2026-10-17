@@ -250,35 +250,31 @@ functions and safe states remain the responsibility of each client.
 
 ### First prototype: ESP32 relay client
 
-The first client prototype is based on the existing relay sketch and targets a
-generic ESP32-WROOM-32 development board. It exposes HTTPS endpoints and
-initially reports its identity, firmware version and a controllable relay:
+The first client prototype targets a generic ESP32-WROOM-32 development
+board. Node-RED on Venus OS reads `com.victronenergy.system/0` at
+`/Dc/Battery/Voltage` and exposes the latest fresh sample through
+`GET /homenodes/v1/battery-voltage`. The ESP32 polls this endpoint over HTTPS
+every 60 seconds by default and makes the relay decision locally; MQTT is not
+used in this initial design.
 
-- `GET /api/v1/capabilities` — client ID, firmware version and capabilities
-- `GET /api/v1/status` — current relay state
-- `POST /api/v1/relay` — switch the relay using `{"state":"on"}` or
-  `{"state":"off"}`
+The Node-RED endpoint returns a JSON object with numeric `voltage` and
+`updatedAt` (Unix milliseconds), or `503 Service Unavailable` if the cached
+sample is missing or older than 120 seconds. Node-RED must provide HTTPS and
+HTTP Basic Authentication for its HTTP In endpoint. The ESP32 trusts the
+configured server certificate/CA and verifies the hostname; do not disable
+TLS verification. Configure the endpoint URL, credentials and trusted PEM
+locally in `client/esp32_relay/secrets.h`; never commit that file.
 
-All endpoints use HTTPS and HTTP Basic Authentication. During development,
-Wi-Fi credentials, device-specific authentication credentials and the TLS
-certificate are configured locally in `client/esp32_relay/secrets.h`. That
-file and the private key must not be committed. The client is reachable via
-its mDNS address `<CLIENT_ID>.local` and advertises the HTTPS service on the
-local network.
-
-The initial TLS approach is a self-signed server certificate generated on the
-development computer. The controller must explicitly trust the certificate
-and verify the requested hostname against its SAN; certificate verification
-must not be disabled. A Dockerized controller must have access to the public
-certificate trust file. `.local` mDNS resolution from inside Docker may require
-additional host/network configuration.
-
-The sketch retains GPIO 13 and active-HIGH relay logic from the previous
-prototype. Verify this against the exact board pinout and relay module before
-use.
+The ESP32 relay starts OFF and uses local hysteresis: ON at or above 53.8 V,
+OFF at or below 52.1 V, retaining its previous state between thresholds. Wi-Fi,
+HTTPS, authentication, stale-data and invalid-response failures switch it
+OFF. Voltage is an approximate indicator rather than a direct SOC reading;
+validate the thresholds and fail-safe behavior before enabling the heater.
+The sketch retains GPIO 13 and active-HIGH relay logic. Verify this against
+the exact board pinout and relay module before use.
 
 The hardware photo shows an ESP32-WROOM-32 development board and a single
-relay module with `VCC`, `IN1` and `GND` control labels. The first API test
+relay module with `VCC`, `IN1` and `GND` control labels. The first relay test
 uses only these two boards; no sensor is needed. Confirm the relay module's
 exact model, voltage requirements and trigger polarity before wiring or
 applying a load.

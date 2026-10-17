@@ -1,0 +1,102 @@
+[
+    {
+        "id": "ir_heater_voltage_relay",
+        "type": "tab",
+        "label": "HomeNodes battery voltage endpoint",
+        "disabled": false,
+        "info": "Caches Victron battery voltage and exposes a fresh value to the ESP32 relay client. Configure HTTPS and HTTP Basic Auth in the Node-RED runtime."
+    },
+    {
+        "id": "ir_victron_voltage",
+        "type": "victron-input-system",
+        "z": "ir_heater_voltage_relay",
+        "service": "com.victronenergy.system/0",
+        "path": "/Dc/Battery/Voltage",
+        "serviceObj": {
+            "service": "com.victronenergy.system/0",
+            "name": "Venus system"
+        },
+        "pathObj": {
+            "path": "/Dc/Battery/Voltage",
+            "type": "float",
+            "name": "Battery voltage (V)"
+        },
+        "name": "Victron battery voltage",
+        "onlyChanges": false,
+        "roundValues": "2",
+        "outputs": 1,
+        "x": 190,
+        "y": 140,
+        "wires": [
+            [
+                "ir_cache_voltage"
+            ]
+        ]
+    },
+    {
+        "id": "ir_cache_voltage",
+        "type": "function",
+        "z": "ir_heater_voltage_relay",
+        "name": "Cache latest voltage",
+        "func": "const voltage = Number(msg.payload);\nif (!Number.isFinite(voltage) || voltage < 30 || voltage > 65) {\n    node.warn(\"Ignoring invalid battery voltage: \" + msg.payload);\n    return null;\n}\n\nflow.set(\"batteryVoltage\", voltage);\nflow.set(\"batteryVoltageUpdatedAt\", Date.now());\nnode.status({ fill: \"green\", shape: \"dot\", text: voltage.toFixed(2) + \" V\" });\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ir_voltage_http_in",
+        "type": "http in",
+        "z": "ir_heater_voltage_relay",
+        "name": "ESP32 voltage poll",
+        "url": "/homenodes/v1/battery-voltage",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 190,
+        "y": 260,
+        "wires": [
+            [
+                "ir_serve_voltage"
+            ]
+        ]
+    },
+    {
+        "id": "ir_serve_voltage",
+        "type": "function",
+        "z": "ir_heater_voltage_relay",
+        "name": "Require recent sample",
+        "func": "const MAX_AGE_MS = 120000;\nconst voltage = flow.get(\"batteryVoltage\");\nconst updatedAt = flow.get(\"batteryVoltageUpdatedAt\");\nconst ageMs = Date.now() - updatedAt;\n\nmsg.headers = { \"Content-Type\": \"application/json\" };\nif (!Number.isFinite(voltage) || !Number.isFinite(updatedAt) || ageMs < 0 || ageMs > MAX_AGE_MS) {\n    msg.statusCode = 503;\n    msg.payload = { error: \"battery_voltage_unavailable\" };\n    return msg;\n}\n\nmsg.statusCode = 200;\nmsg.payload = { voltage: voltage, updatedAt: updatedAt };\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 470,
+        "y": 260,
+        "wires": [
+            [
+                "ir_voltage_http_response"
+            ]
+        ]
+    },
+    {
+        "id": "ir_voltage_http_response",
+        "type": "http response",
+        "z": "ir_heater_voltage_relay",
+        "name": "Return voltage response",
+        "statusCode": "",
+        "headers": {},
+        "x": 760,
+        "y": 260,
+        "wires": []
+    }
+]

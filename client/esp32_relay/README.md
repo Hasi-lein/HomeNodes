@@ -1,97 +1,83 @@
 # ESP32 relay client
 
-This PlatformIO project turns the existing relay prototype into a small HTTPS
-API server. It keeps the relay on GPIO 13 (active HIGH, as in the previous
-sketch) and starts with the relay off.
+This PlatformIO project runs the battery-voltage hysteresis and relay control
+locally on an ESP32-WROOM-32. The ESP32 polls a HTTPS endpoint exposed by
+Node-RED on Venus OS for the latest Victron battery voltage. It does not use
+MQTT.
+
+## Behavior
+
+- Poll Node-RED every 60 seconds by default; configure `POLL_INTERVAL_MS` in
+  the local `secrets.h`.
+- Turn the relay **ON** at or above 53.8 V.
+- Turn the relay **OFF** at or below 52.1 V.
+- Retain the previous relay state between the two thresholds.
+- Start with the relay OFF. If Wi-Fi, TLS, HTTP, or response validation fails,
+  switch OFF (fail-safe).
+- Reject voltage values outside the broad sanity range of 30–65 V.
+
+These are the voltage thresholds selected for the initial test. Battery
+voltage is an approximate indicator, not a direct SOC measurement. Validate
+the thresholds for the battery and operating conditions before enabling the
+infrared heater.
 
 ## Configure and flash
 
-1. Install the PlatformIO IDE extension in VS Code.
-2. Open this `esp32_relay` directory as the PlatformIO project. The
-   `esp32dev` environment targets a generic ESP32-WROOM-32 development board
-   using the Arduino framework.
+1. Install the VS Code PlatformIO IDE extension.
+2. Open this `esp32_relay` directory as a PlatformIO project. The `esp32dev`
+   environment targets a generic ESP32-WROOM-32 development board.
 3. Copy `secrets_template.h` to `secrets.h`.
-4. Set the automation WLAN, unique client ID, and a unique HTTP Basic Auth
-   username/password.
-5. The repository includes the non-secret OpenSSL configuration
-   `esp32-relay-cert.cnf`. Its Subject Alternative Name (SAN) must match the
-   exact hostname the controller will use. If you change `CLIENT_ID` or the
-   hostname, update the `CN` and `DNS.1` entries in that file to match.
-   Generate a self-signed TLS server certificate and private key:
+4. Set the Wi-Fi SSID/password, Node-RED HTTPS URL, Node-RED HTTP Basic Auth
+   credentials, and polling interval.
+5. Paste the **complete PEM** for the Node-RED server certificate or issuing
+   CA into `NODERED_CA_CERTIFICATE_PEM`, including the
+   `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` lines.
+   Do not paste URL-encoded certificate text or a base64 body without the PEM
+   markers. The certificate SAN must match the hostname in
+   `NODERED_BATTERY_VOLTAGE_URL`. Do not disable TLS verification.
+6. Connect the ESP32 by USB, select the `esp32dev` environment, then use
+   PlatformIO **Build** and **Upload**. Use **Monitor** at 115200 baud.
 
-   ```sh
-   openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-     -keyout esp32-relay.key \
-     -out esp32-relay-cert.pem \
-     -config esp32-relay-cert.cnf \
-     -extensions server_cert
-   ```
+`secrets.h` is ignored by Git. Never commit it or real credentials. The
+PlatformIO project downloads ArduinoJson on its first build.
 
-   `esp32-relay-cert.pem` is the public certificate; `esp32-relay.key` is
-   private. Replace the placeholder text inside the `TLS_CERTIFICATE_PEM` and
-   `TLS_PRIVATE_KEY_PEM` raw-string blocks in `secrets.h` with the complete
-   PEM contents. Keep each `R"PEM(` and `)PEM"` delimiter on its own line.
-   Never commit the private key or `secrets.h`.
-6. Configure the controller's HTTPS client to explicitly trust this
-   self-signed certificate (for example, as its CA/trusted certificate file).
-   Keep peer and hostname verification enabled; do not use an insecure TLS
-   option. If the controller runs in Docker, make the public `.pem` certificate
-   file available inside the container and configure the HTTP client to use it.
-7. Connect the board by USB, select the `esp32dev` environment, and use
-   PlatformIO's Build and Upload tasks. Use Monitor to view the serial output
-   at 115200 baud.
+## Node-RED endpoint
 
-The project source is in `src/main.cpp`. Add other ESP32 firmware as separate
-client directories, each with its own `platformio.ini`.
+The Venus OS Node-RED flow should expose:
 
-The client advertises `_https._tcp` over mDNS and can be reached at
-`https://<CLIENT_ID>.local`. For TLS validation, the hostname used by the
-controller must match a DNS name in the certificate SAN. A self-signed
-certificate is not trusted automatically: the controller must trust it
-explicitly. Connecting by IP address requires that exact IP address as an IP
-SAN in the certificate. Prefer a stable hostname; mDNS names ending in `.local`
-may not resolve automatically from inside Docker, depending on the host and
-container network configuration.
-
-The certificate expires after the configured validity period (365 days in the
-example). Renew it before expiry, update the certificate in `secrets.h`, and
-update the controller's trusted certificate at the same time. Replacing the
-certificate without updating the controller trust configuration will cause
-TLS validation to fail, as intended.
-
-## API
-
-All endpoints require HTTP Basic Authentication over HTTPS.
-
-### `GET /api/v1/capabilities`
-
-Returns the client ID, firmware version, and the available relay command.
-
-### `GET /api/v1/status`
-
-Returns the current relay state.
-
-### `POST /api/v1/relay`
-
-Accepts a JSON body:
-
-```json
-{"state":"on"}
+```text
+GET /homenodes/v1/battery-voltage
 ```
 
-Use `{"state":"off"}` to turn the relay off. Successful responses use the
-same shape as the status endpoint. Invalid or oversized request bodies are
-rejected with `400 Bad Request`.
+A successful JSON response is:
 
-## Hardware note
+```json
+{
+  "voltage": 53.42,
+  "updatedAt": 1792173477458
+}
+```
 
-GPIO 13 is retained from the old sketch and is available on many ESP32-WROOM-32
-development boards. Verify the exact board pinout, relay module input polarity
-and electrical isolation before connecting a load. The USB connection is
-suitable for development and low-power operation, not necessarily for powering
-a relay module and its load-side equipment.
+`updatedAt` is Unix time in milliseconds. Node-RED should return `503 Service
+Unavailable` when it has no recent Victron voltage sample (the example flow
+uses a 120-second freshness limit). Configure the HTTP In endpoint to use
+HTTPS and HTTP Basic Authentication. The ESP32 trusts the configured
+certificate/CA and checks the hostname; do not use insecure TLS options.
 
-This first test uses only the ESP32 board and single-channel relay module
-(`VCC`, `IN1`, `GND`); no sensor is required. Confirm the relay module's exact
-model, supply voltage and trigger polarity before wiring. Do not connect a
-mains or heater load while testing GPIO behavior.
+The ESP32 sends its Basic Auth credentials on every poll. Use dedicated
+credentials for this endpoint and keep them private.
+
+## Hardware
+
+For the initial relay test, use only the ESP32 and the single-channel relay
+module:
+
+| ESP32-WROOM-32 | Relay module |
+| --- | --- |
+| 3V3 | VCC |
+| GND | GND |
+| GPIO 13 | IN1 |
+
+This assumes the module accepts 3.3 V power/logic and is active HIGH. Verify
+the exact module rating and behavior. Do not connect the infrared heater or
+any mains load while testing.

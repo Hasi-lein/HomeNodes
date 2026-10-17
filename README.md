@@ -14,6 +14,8 @@ not yet been built or tested on hardware.
 - A computer on a dedicated automation Wi-Fi network runs the controller
   application in Docker, with a web frontend. PHP/Symfony is the current
   preference.
+- The controller searches the network for clients and provides a GUI to inspect
+  and configure them. The Venus OS Raspberry Pi is a client, not the controller.
 - ESP32 clients use C++ firmware and perform their local control
   autonomously.
 - The controller discovers and configures clients over HTTPS/REST. Initial
@@ -32,10 +34,12 @@ not yet been built or tested on hardware.
 - [`Doku/miro_export.pdf`](Doku/miro_export.pdf) — original Miro PDF export,
   retained as a source reference. The original export is in German and includes
   diagrams of the home's electrical installation.
-- [`client/esp32_relay/`](client/esp32_relay/) — first ESP32-WROOM-32 HTTPS
-  relay-client prototype, setup instructions and example configuration.
+- [`client/esp32_relay/`](client/esp32_relay/) — ESP32-WROOM-32 relay
+  prototype; polls Venus OS Node-RED for voltage and runs relay logic locally.
 - [`client/tests/`](client/tests/) — VS Code REST Client requests for exercising
   client APIs locally.
+- [`controller/node-red/`](controller/node-red/) — importable Node-RED flow
+  serving fresh Victron battery voltage to the ESP32 and setup notes.
 
 ## ESP32 development in VS Code
 
@@ -52,11 +56,10 @@ upload and monitor that board.
 
 ## ESP32 relay prototype
 
-The prototype currently exposes:
-
-- `GET /api/v1/capabilities`
-- `GET /api/v1/status`
-- `POST /api/v1/relay` with `{"state":"on"}` or `{"state":"off"}`
+The ESP32 polls the Node-RED endpoint
+`GET /homenodes/v1/battery-voltage` over verified HTTPS. It applies local
+hysteresis (ON at 53.8 V, OFF at 52.1 V) and fails OFF when a valid fresh
+measurement cannot be read.
 
 See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup
 details. Do not commit `secrets.h`, private keys or real credentials.
