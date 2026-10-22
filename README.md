@@ -35,7 +35,8 @@ not yet been built or tested on hardware.
   retained as a source reference. The original export is in German and includes
   diagrams of the home's electrical installation.
 - [`client/esp32_relay/`](client/esp32_relay/) — ESP32-WROOM-32 relay
-  prototype; polls Venus OS Node-RED for voltage and runs relay logic locally.
+  prototype; polls Venus OS Node-RED, runs relay logic locally, and exposes
+  authenticated HTTPS status/control endpoints.
 - [`client/tests/`](client/tests/) — VS Code REST Client requests for exercising
   client APIs locally.
 - [`client/node-red/`](client/node-red/) — Node-RED client flow on Venus OS;
@@ -60,7 +61,9 @@ The ESP32 polls the Node-RED endpoint
 `GET /homenodes/v1/battery-voltage` over verified HTTPS. It applies local
 hysteresis (ON at 53.8 V, OFF at 52.1 V), permits heating only 06:00–23:59
 Europe/Berlin and only in Victron VE.Bus mode 2 (Inverter Only), and fails OFF
-when time or fresh Victron data is unavailable.
+when time or fresh Victron data is unavailable. Its HTTPS API reports status
+and lets an authorized caller enable automatic heating or force it off. Heater
+permission resets to disabled after reboot.
 
 See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup
 details. Do not commit `secrets.h`, private keys or real credentials.

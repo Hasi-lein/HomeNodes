@@ -41,9 +41,55 @@ The flow export does not configure transport security or authentication.
 Before using it, configure the Node-RED HTTP In service for HTTPS (directly
 using Node-RED's HTTPS settings or through a trusted HTTPS reverse proxy) and
 enable HTTP Basic Authentication for HTTP In routes with `httpNodeAuth` in
-Node-RED's `settings.js`. Use dedicated credentials for the ESP32 and do not
+Node-RED's settings. Use dedicated credentials for the ESP32 and do not
 put passwords into the flow JSON. Node-RED's built-in HTTP-node authentication
 configuration applies to all HTTP In endpoints in that runtime.
+
+### Venus OS Node-RED 4.x configuration
+
+On the Venus OS installation used for this flow, Node-RED is started with
+`/usr/lib/node_modules/node-red/venus-settings.js`. That file loads optional
+user overrides from:
+
+```text
+/data/home/nodered/.node-red/settings-user.js
+```
+
+Do not edit `venus-settings.js` or the generated `.config.users.json` for this
+purpose. Create `settings-user.js` with the following structure, replacing the
+placeholder with a bcrypt password hash generated locally with
+`/usr/bin/node-red admin hash-pw`:
+
+```js
+module.exports = {
+    httpNodeAuth: {
+        user: "HomeNodes",
+        pass: "<bcrypt-hash>"
+    }
+};
+```
+
+The password hash belongs only on Venus OS. Configure the corresponding
+**plaintext Node-RED API password** in each authorized client's ignored local
+`secrets.h`; the client uses it to authenticate each HTTPS request. Do not
+share or commit either value. The Node-RED HTTP-In setting has one shared
+credential for every HTTP-In route in this runtime; keep this password
+dedicated to Node-RED and separate from the ESP32's own API password and the
+Venus/editor login. If you change the username to `HomeNodes`, update
+`NODERED_HTTP_USER` on each ESP32 client and redeploy/restart Node-RED.
+
+After validating the file with `node --check`, restart the managed process so
+it reloads the settings:
+
+```sh
+/usr/bin/svc -t /service/node-red-venus
+```
+
+On this Venus OS image, `sv` is not installed; `/usr/bin/svc -t` signals the
+supervised Node-RED process, which is then started again by `supervise`.
+Verify that a request without credentials returns `401 Unauthorized`, and
+that a request with the dedicated API credentials returns `200 OK`. This
+authentication setting protects every HTTP In route in this Node-RED runtime.
 
 Restrict access to the automation LAN/firewall as appropriate. The ESP32
 validates the HTTPS server certificate and hostname. Put the trusted

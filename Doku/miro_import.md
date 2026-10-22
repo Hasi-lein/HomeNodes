@@ -267,8 +267,12 @@ URL, credentials and trusted PEM locally in `client/esp32_relay/secrets.h`;
 never commit that file.
 
 The ESP32 relay starts OFF and uses local hysteresis: ON at or above 53.8 V,
-OFF at or below 52.1 V, retaining its previous state between thresholds. Wi-Fi,
-heating is permitted only from 06:00 through 23:59 local time (Europe/Berlin)
+OFF at or below 52.1 V, retaining its previous state between thresholds.
+Heater permission is disabled at startup and must be enabled through the
+ESP32's authenticated HTTPS API; an `on` command only enables automatic
+control and an `off` command always forces the relay off. The API reports the
+relay state, battery voltage, inverter mode and local time. Heating is
+permitted only from 06:00 through 23:59 local time (Europe/Berlin)
 and only when the VE.Bus mode is `2` (Inverter Only). Any other mode, an
 unsynchronized clock, Wi-Fi/HTTPS/authentication failure, stale data or an
 invalid response switches the relay OFF. The ESP32 uses the Fritz!Box at

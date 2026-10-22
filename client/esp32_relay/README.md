@@ -1,101 +1,141 @@
-# ESP32 relay client
+# ESP32 IR heater relay client
 
-This PlatformIO project runs the battery-voltage hysteresis and relay control
-locally on an ESP32-WROOM-32. The ESP32 polls a HTTPS endpoint exposed by
-Node-RED on Venus OS for the latest Victron battery voltage. It does not use
-MQTT.
+This PlatformIO project runs the IR-heater relay logic locally on an
+ESP32-WROOM-32. It polls the Venus OS Node-RED client for fresh battery voltage
+and Victron VE.Bus mode, synchronizes its clock from the Fritz!Box, and exposes
+a small authenticated HTTPS API for status and heater enable/disable.
 
-## Behavior
+## Heater behavior
 
-- Poll Node-RED every 60 seconds by default; configure `POLL_INTERVAL_MS` in
-  the local `secrets.h`.
-- Turn the relay **ON** at or above 53.8 V.
-- Turn the relay **OFF** at or below 52.1 V.
-- Retain the previous relay state between the two thresholds.
-- Permit heating only from 06:00 through 23:59 local time (Europe/Berlin).
-- Permit heating only when the Victron VE.Bus mode is `2` (Inverter Only).
-  Other modes, including `3` (On/charging), force the relay OFF.
-- Start with the relay OFF. If Wi-Fi, TLS, HTTP, or response validation fails,
-  switch OFF (fail-safe).
-- Keep the relay OFF if the local clock has not synchronized.
-- Reject voltage values outside the broad sanity range of 30–65 V.
+The relay starts OFF and API heater permission starts **disabled after every
+reboot**. An API `on` command enables automatic control; it does not directly
+force the relay on. The relay can energize only when all of these conditions
+are true:
 
-These are the voltage thresholds selected for the initial test. Battery
-voltage is an approximate indicator, not a direct SOC measurement. Validate
-the thresholds for the battery and operating conditions before enabling the
-infrared heater.
+- Heater permission was enabled through the API during this boot.
+- Local time is synchronized and between **06:00 and 23:59 Europe/Berlin**.
+- Recent, valid voltage and inverter-mode data is available from Node-RED.
+- Victron VE.Bus mode is `2` (**Inverter Only**).
+- Battery voltage reaches **53.8 V** to turn ON. At or below **52.1 V**, it
+  turns OFF; between those thresholds it retains the previous relay state.
+
+An API `off` command always disables heater permission and immediately turns
+the relay OFF. Wi-Fi, HTTPS, authentication, stale-data, invalid-response,
+clock-sync, time-window, or inverter-mode failures also keep the relay OFF.
+API enable state is held in RAM only and is intentionally not restored after
+power loss or reboot.
+
+These voltage thresholds are the initial chosen values, not guaranteed SOC
+limits. Validate them and all fail-safe behavior before connecting or enabling
+the infrared heater.
+
+## HTTPS API
+
+The ESP32 advertises `_https._tcp` using mDNS at
+`https://<CLIENT_ID>.local` (default `https://esp32-relay-01.local`).
+Every endpoint requires HTTP Basic Authentication over HTTPS using
+`ESP_API_USER` and `ESP_API_PASSWORD`.
+
+### `GET /api/v1/status`
+
+Returns relay state, current automatic-control permission, recent battery
+voltage, Victron inverter mode, local time, clock-sync state and the reason
+heating is currently inhibited:
+
+```json
+{
+  "clientId": "esp32-relay-01",
+  "heaterEnabled": true,
+  "relay": {"state": "off"},
+  "batteryVoltage": 52.64,
+  "inverterMode": 2,
+  "inverterModeName": "Inverter Only",
+  "clockSynchronized": true,
+  "localTime": "2026-10-21T20:09:23",
+  "timeZone": "Europe/Berlin",
+  "reason": "automatic_control"
+}
+```
+
+The sensor values and mode are `null` until a valid recent Node-RED sample is
+available. `reason` can be `disabled_by_api`, `clock_not_synchronized`,
+`outside_heating_hours`, `victron_data_unavailable`,
+`inverter_not_in_inverter_only_mode`, or `automatic_control`.
+
+### `POST /api/v1/relay`
+
+Enable automatic heating permission (still subject to time, voltage and
+inverter conditions):
+
+```json
+{"state":"on"}
+```
+
+Disable the heater unconditionally:
+
+```json
+{"state":"off"}
+```
+
+The response has the same shape as `GET /api/v1/status`. Invalid JSON or state
+values return `400 Bad Request`; missing or incorrect credentials return
+`401 Unauthorized`.
 
 ## Configure and flash
 
 1. Install the VS Code PlatformIO IDE extension.
-2. Open this `esp32_relay` directory as a PlatformIO project. The `esp32dev`
-   environment targets a generic ESP32-WROOM-32 development board.
+2. Open this directory as a PlatformIO project. The `esp32dev` environment
+   targets a generic ESP32-WROOM-32 development board.
 3. Copy `secrets_template.h` to `secrets.h`.
-4. Set the Wi-Fi SSID/password, NTP server, Node-RED HTTPS URL, Node-RED HTTP
-   Basic Auth credentials, and polling interval. The default NTP server is
-   `192.168.178.1` (Fritz!Box); no public NTP fallback is configured. The
-   router must provide NTP on the local network.
-5. Paste the **complete PEM** for the Node-RED server certificate or issuing
-   CA into `NODERED_CA_CERTIFICATE_PEM`, including the
-   `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` lines.
-   Do not paste URL-encoded certificate text or a base64 body without the PEM
-   markers. The certificate SAN must match the hostname in
-   `NODERED_BATTERY_VOLTAGE_URL`. Do not disable TLS verification.
-6. Connect the ESP32 by USB, select the `esp32dev` environment, then use
-   PlatformIO **Build** and **Upload**. Use **Monitor** at 115200 baud.
+4. Set Wi-Fi credentials, `NTP_SERVER` (Fritz!Box default
+   `192.168.178.1`), Node-RED URL and credentials, and a unique ESP32 API
+   password. The username default is `HomeNodes`; use matching credentials in
+   the Node-RED `httpNodeAuth` configuration. Do not reuse passwords between
+   devices.
+5. Paste the complete Node-RED certificate/CA into
+   `NODERED_CA_CERTIFICATE_PEM`. Paste this ESP32's complete server certificate
+   and private key into `ESP_SERVER_CERTIFICATE_PEM` and
+   `ESP_SERVER_PRIVATE_KEY_PEM`. The ESP certificate SAN must match
+   `<CLIENT_ID>.local`. Keep the private key and all of `secrets.h` out of
+   version control.
+6. Connect the board by USB, use PlatformIO **Build** and **Upload**, then
+   open **Monitor** at 115200 baud.
 
-`secrets.h` is ignored by Git. Never commit it or real credentials. The
-PlatformIO project downloads ArduinoJson on its first build.
+The repo's ignored local `esp32-relay-cert.pem` and `esp32-relay.key` are the
+server identity for this relay. The public certificate is also needed by API
+clients to validate the ESP32 HTTPS endpoint. Never disable TLS validation.
 
-## Node-RED endpoint
+Node-RED returns `503 Service Unavailable` when the voltage or inverter-mode
+measurement is missing or stale. It returns both `voltage` and
+`inverterMode` on success; mode `2` is the only mode that permits heating.
 
-The Venus OS Node-RED flow should expose:
+## Clock synchronization
 
-```text
-GET /homenodes/v1/battery-voltage
-```
-
-A successful JSON response is:
-
-```json
-{
-  "voltage": 53.42,
-  "updatedAt": 1792173477458
-}
-```
-
-`updatedAt` is Unix time in milliseconds. Node-RED should return `503 Service
-Unavailable` when it has no recent Victron voltage sample (the example flow
-uses a 120-second freshness limit). Configure the HTTP In endpoint to use
-HTTPS and HTTP Basic Authentication. The ESP32 trusts the configured
-certificate/CA and checks the hostname; do not use insecure TLS options.
-The response must also include integer `inverterMode` (Victron `/Mode`).
-Heating is allowed only for value `2`; missing, stale or other mode values
-keep the relay OFF.
-
-## Clock synchronization and operating window
-
-The ESP32 synchronizes time using NTP on the router at `NTP_SERVER` (default
-`192.168.178.1`) and uses the `Europe/Berlin` daylight-saving rules. It does
-not fall back to a public NTP pool. Confirm that the Fritz!Box answers NTP
-requests on the LAN; until time is valid, the relay remains OFF. Heating is
-allowed during hours 06 through 23, inclusive, and is disabled at midnight
-until 06:00.
-
-The ESP32 sends its Basic Auth credentials on every poll. Use dedicated
-credentials for this endpoint and keep them private.
+The ESP32 uses `NTP_SERVER` (default `192.168.178.1`) as its only NTP source;
+there is no public-pool fallback. The router must provide NTP over the LAN.
+The local timezone is Europe/Berlin with daylight-saving transitions. Until
+the clock is valid, heater enable cannot energize the relay.
 
 ## Hardware
 
-For the initial relay test, use only the ESP32 and the single-channel relay
-module:
+The DHT20 temperature/humidity sensor is read over I²C every 10 seconds and
+its values are printed to the serial monitor at 115200 baud. These readings are
+currently diagnostic only: they are not included in the HTTPS API and do not
+affect heater control.
 
-| ESP32-WROOM-32 | Relay module |
-| --- | --- |
-| 3V3 | VCC |
-| GND | GND |
-| GPIO 13 | IN1 |
+Connect the DHT20 module to 3.3 V (not 5 V) and use the default I²C pins below.
+For the initial relay test, use a single-channel relay module:
+
+| ESP32-WROOM-32 | Device | Connection |
+| --- | --- | --- |
+| 3V3 | DHT20 | `+` / VCC |
+| GND | DHT20 and relay module | `-` / GND |
+| GPIO 21 | DHT20 | SDA |
+| GPIO 22 | DHT20 | SCL |
+| 3V3 | Relay module | VCC |
+| GPIO 13 | Relay module | IN1 |
 
 This assumes the module accepts 3.3 V power/logic and is active HIGH. Verify
-the exact module rating and behavior. Do not connect the infrared heater or
-any mains load while testing.
+the exact relay module and board. Keep the heater and all mains loads
+disconnected while testing the firmware and API. The serial monitor reports
+sensor connection, measurement or checksum errors explicitly.

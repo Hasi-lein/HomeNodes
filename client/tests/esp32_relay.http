@@ -1,9 +1,31 @@
-@host = venus.local:1881
-@username = {{$prompt 'Node-RED HTTP Basic Auth username'}}
-@password = {{$prompt 'Node-RED HTTP Basic Auth password'}}
+@host = esp32-relay-01.local
+@username = {{$prompt 'HomeNodes API username'}}
+@password = {{$prompt 'ESP32 API password'}}
 
-### Read the latest Victron battery voltage from Venus OS Node-RED
-# @name batteryVoltage
-GET https://{{host}}/homenodes/v1/battery-voltage
-Authorization: Basic {{username}}:{{password}}
+### Read relay, heating permission, voltage, inverter mode, and local time
+# @name status
+GET https://{{host}}/api/v1/status
+Authorization: Basic {{username}} {{password}}
 Accept: application/json
+
+### Enable automatic heater control (still subject to all safety conditions)
+# @name enableHeater
+POST https://{{host}}/api/v1/relay
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "state": "on"
+}
+
+### Disable heater unconditionally
+# @name disableHeater
+POST https://{{host}}/api/v1/relay
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "state": "off"
+}

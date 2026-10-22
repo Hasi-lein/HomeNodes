@@ -1,34 +1,21 @@
-# Node-RED endpoint test
+# ESP32 relay API tests
 
-The `esp32_relay.http` file contains a Visual Studio Code REST Client request
-for the Node-RED battery-voltage endpoint on Venus OS.
+The `esp32_relay.http` file contains Visual Studio Code REST Client requests
+for the ESP32 relay client's HTTPS API.
 
-## Run the request
+1. Install the **REST Client** extension (`humao.rest-client`) if needed.
+2. Open `esp32_relay.http` and set `@host` to the ESP32's mDNS name or IP.
+3. Send `GET /api/v1/status` to inspect relay state, voltage, inverter mode
+   and local time.
+4. Send `POST /api/v1/relay` with `{"state":"on"}` to enable automatic
+   control, or `{"state":"off"}` to force the heater off.
 
-1. Install the VS Code extension **REST Client**
-   (`humao.rest-client`) if needed.
-2. Open `esp32_relay.http`.
-3. Change the hostname if needed, then use **Send Request**.
-4. Enter the Node-RED HTTP Basic Auth username and password when prompted.
+An `on` request only enables the automatic control; time, voltage, and
+Victron-mode requirements still apply. Heater permission resets to disabled
+after reboot. Keep the heater and mains loads disconnected during initial
+testing.
 
-The endpoint should return `200 OK` and a JSON object containing `voltage`,
-`inverterMode` and `updatedAt` when recent Victron readings are available. A
-missing or stale reading returns `503 Service Unavailable`.
-
-## TLS verification
-
-The current REST Client extension implementation sends HTTPS requests without
-validating the server certificate (`rejectUnauthorized` is disabled in its
-HTTP client). A successful request therefore does **not** verify TLS trust or
-hostname validation.
-
-To verify the Node-RED certificate and hostname, use a client configured with
-the correct trusted certificate/CA, for example:
-
-```sh
-curl --cacert venus-node-red-ca.pem \
-  -u ESP32_USER \
-  https://venus.local:1881/homenodes/v1/battery-voltage
-```
-
-`curl` prompts for the password if it is not supplied after `-u`.
+The REST Client extension currently does not validate server certificates.
+A successful request is not proof of TLS certificate or hostname validation.
+For a verified test, use a client configured to trust the ESP32's certificate
+while keeping certificate and hostname verification enabled.

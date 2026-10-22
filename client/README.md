@@ -10,15 +10,15 @@ repository also recommends this extension through `.vscode/extensions.json`.
 
 Current projects:
 
-- [`esp32_relay/`](esp32_relay/) — ESP32-WROOM-32 client that polls the
-  Node-RED battery-voltage endpoint over verified HTTPS and controls a relay
-  locally.
+- [`esp32_relay/`](esp32_relay/) — ESP32-WROOM-32 client that polls Node-RED,
+  controls the relay locally and exposes an authenticated HTTPS status/control
+  API.
 - [`esp32_relay_blink/`](esp32_relay_blink/) — standalone relay hardware test
   that switches every 500 ms without network or sensor functionality.
 - [`node-red/`](node-red/) — Venus OS Node-RED flow serving current Victron
   battery voltage and inverter mode to clients.
-- [`tests/`](tests/) — REST Client `.http` requests for testing the Node-RED
-  voltage endpoint.
+- [`tests/`](tests/) — REST Client `.http` requests for testing the ESP32 relay
+  API.
 
 Create future clients as sibling directories with their own `platformio.ini`,
 `src/main.cpp` and project-specific README. This keeps board settings,
