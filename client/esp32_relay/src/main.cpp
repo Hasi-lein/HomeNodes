@@ -22,12 +22,17 @@ constexpr uint8_t RELAY_OFF_LEVEL = LOW;
 constexpr uint8_t DHT20_SDA_PIN = 21;
 constexpr uint8_t DHT20_SCL_PIN = 22;
 constexpr uint8_t DHT20_I2C_ADDRESS = 0x38;
+constexpr char DHT20_SENSOR_ID[] = "room-climate";
+constexpr char DHT20_SENSOR_NAME[] = "Temperatur und Luftfeuchtigkeit";
+constexpr char HEATER_RELAY_ID[] = "infrared-heater-relay";
+constexpr char HEATER_RELAY_NAME[] = "Infrarot Heizung";
 constexpr float RELAY_TURN_ON_V = 53.8F;
 constexpr float RELAY_TURN_OFF_V = 52.1F;
 constexpr float MIN_VALID_BATTERY_V = 30.0F;
 constexpr float MAX_VALID_BATTERY_V = 65.0F;
 constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr unsigned long SENSOR_POLL_INTERVAL_MS = 10000;
+constexpr unsigned long MAX_SENSOR_DATA_AGE_MS = 30000;
 constexpr unsigned long MAX_VICTRON_DATA_AGE_MS = 120000;
 constexpr uint16_t HTTP_TIMEOUT_MS = 5000;
 constexpr int FIRST_ALLOWED_HOUR = 6;
@@ -45,10 +50,15 @@ struct ControlState {
   float batteryVoltage;
   int inverterMode;
   unsigned long victronDataReceivedAt;
+  bool hasDht20Data;
+  float temperatureC;
+  float relativeHumidityPercent;
+  unsigned long dht20DataReceivedAt;
 };
 
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
-ControlState controlState = {false, false, false, 0.0F, 0, 0};
+ControlState controlState = {false, false, false, 0.0F, 0, 0,
+                            false, 0.0F, 0.0F, 0};
 httpd_handle_t httpsServer = nullptr;
 String basicAuthHeader;
 bool wasWiFiConnected = false;
@@ -195,6 +205,13 @@ void pollDht20() {
   float temperature = 0.0F;
   float humidity = 0.0F;
   if (readDht20(temperature, humidity)) {
+    portENTER_CRITICAL(&stateMux);
+    controlState.hasDht20Data = true;
+    controlState.temperatureC = temperature;
+    controlState.relativeHumidityPercent = humidity;
+    controlState.dht20DataReceivedAt = millis();
+    portEXIT_CRITICAL(&stateMux);
+
     Serial.printf("DHT20: temperature %.2f C, humidity %.2f %%\n",
                   temperature, humidity);
   }
@@ -251,10 +268,6 @@ void applyRelayLogic() {
   } else if (state.batteryVoltage <= RELAY_TURN_OFF_V) {
     setRelay(false);
   }
-
-  Serial.printf("Battery %.2f V; inverter mode %d; relay %s\n",
-                state.batteryVoltage, state.inverterMode,
-                getControlState().relayIsOn ? "ON" : "OFF");
 }
 
 void setHeaterEnabled(bool enabled) {
@@ -303,26 +316,31 @@ bool readVictronState(float& voltage, int& inverterMode) {
     return false;
   }
 
-  if (!response["voltage"].is<float>() &&
-      !response["voltage"].is<double>() &&
-      !response["voltage"].is<int>()) {
-    Serial.println("Node-RED response has no numeric voltage field.");
+  const JsonVariantConst voltageValue =
+      response["sensors"]["battery"]["voltage"];
+  if (!voltageValue.is<float>() && !voltageValue.is<double>() &&
+      !voltageValue.is<int>()) {
+    Serial.println(
+        "Node-RED response has no numeric sensors.battery.voltage field.");
     return false;
   }
 
-  voltage = response["voltage"].as<float>();
+  voltage = voltageValue.as<float>();
   if (!std::isfinite(voltage) || voltage < MIN_VALID_BATTERY_V ||
       voltage > MAX_VALID_BATTERY_V) {
     Serial.printf("Rejected out-of-range battery voltage: %.2f V\n", voltage);
     return false;
   }
 
-  if (!response["inverterMode"].is<int>()) {
-    Serial.println("Node-RED response has no integer inverterMode field.");
+  const JsonVariantConst inverterModeValue =
+      response["sensors"]["inverter"]["mode"];
+  if (!inverterModeValue.is<int>()) {
+    Serial.println(
+        "Node-RED response has no integer sensors.inverter.mode field.");
     return false;
   }
 
-  inverterMode = response["inverterMode"].as<int>();
+  inverterMode = inverterModeValue.as<int>();
   if (inverterMode < 1 || inverterMode > 4) {
     Serial.printf("Rejected invalid Victron inverter mode: %d\n",
                   inverterMode);
@@ -352,6 +370,8 @@ void pollNodeRed() {
   controlState.victronDataReceivedAt = millis();
   portEXIT_CRITICAL(&stateMux);
 
+  Serial.printf("Victron poll: battery voltage %.2f V; inverter mode %d\n",
+                voltage, inverterMode);
   applyRelayLogic();
 }
 
@@ -402,54 +422,64 @@ bool requireAuthorization(httpd_req_t* request) {
   return false;
 }
 
-const char* getModeName(int mode) {
-  switch (mode) {
-    case 1:
-      return "Charger Only";
-    case 2:
-      return "Inverter Only";
-    case 3:
-      return "On";
-    case 4:
-      return "Off";
-    default:
-      return "Unknown";
-  }
-}
-
 void fillStatusResponse(JsonDocument& response) {
   const ControlState state = getControlState();
   struct tm localTime = {};
   const bool clockValid = getLocalTime(localTime);
+  const unsigned long now = millis();
+  const bool sensorDataIsFresh =
+      state.hasDht20Data &&
+      now - state.dht20DataReceivedAt <= MAX_SENSOR_DATA_AGE_MS;
 
-  response["clientId"] = CLIENT_ID;
-  response["heaterEnabled"] = state.heaterEnabled;
-  response["relay"]["state"] = state.relayIsOn ? "on" : "off";
+  JsonObject client = response["client"].to<JsonObject>();
+  client["clientId"] = CLIENT_ID;
+  client["status"] =
+      WiFi.status() == WL_CONNECTED && httpsServer != nullptr ? "on" : "off";
+  JsonArray methods = client["methods"].to<JsonArray>();
+  JsonObject statusMethod = methods.add<JsonObject>();
+  statusMethod["method"] = "GET";
+  statusMethod["path"] = "/api/v1/status";
+  JsonObject relayMethod = methods.add<JsonObject>();
+  relayMethod["method"] = "POST";
+  relayMethod["path"] = "/api/v1/relay";
 
-  if (state.hasVictronData &&
-      millis() - state.victronDataReceivedAt <= MAX_VICTRON_DATA_AGE_MS) {
-    response["batteryVoltage"] = state.batteryVoltage;
-    response["inverterMode"] = state.inverterMode;
-    response["inverterModeName"] = getModeName(state.inverterMode);
+  JsonArray sensors = response["sensors"].to<JsonArray>();
+  JsonObject climateSensor = sensors.add<JsonObject>();
+  climateSensor["id"] = DHT20_SENSOR_ID;
+  climateSensor["name"] = DHT20_SENSOR_NAME;
+  climateSensor["type"] = "DHT20";
+  climateSensor["status"] = sensorDataIsFresh ? "on" : "off";
+  if (sensorDataIsFresh) {
+    climateSensor["temperatureC"] = state.temperatureC;
+    climateSensor["relativeHumidityPercent"] =
+        state.relativeHumidityPercent;
   } else {
-    response["batteryVoltage"] = nullptr;
-    response["inverterMode"] = nullptr;
-    response["inverterModeName"] = nullptr;
+    climateSensor["temperatureC"] = nullptr;
+    climateSensor["relativeHumidityPercent"] = nullptr;
   }
 
-  response["clockSynchronized"] = clockValid;
+  JsonArray actuators = response["actuators"].to<JsonArray>();
+  JsonObject heaterRelay = actuators.add<JsonObject>();
+  heaterRelay["id"] = HEATER_RELAY_ID;
+  heaterRelay["name"] = HEATER_RELAY_NAME;
+  heaterRelay["type"] = "relay";
+  heaterRelay["status"] = state.relayIsOn ? "on" : "off";
+  heaterRelay["enabled"] = state.heaterEnabled;
+
+  JsonObject clock = response["clock"].to<JsonObject>();
+  clock["synchronized"] = clockValid;
   if (clockValid) {
     char formattedTime[24];
     std::strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%dT%H:%M:%S",
                   &localTime);
-    response["localTime"] = formattedTime;
-    response["timeZone"] = "Europe/Berlin";
+    clock["localTime"] = formattedTime;
   } else {
-    response["localTime"] = nullptr;
-    response["timeZone"] = "Europe/Berlin";
+    clock["localTime"] = nullptr;
   }
+  clock["timeZone"] = "Europe/Berlin";
 
-  response["reason"] = getInhibitReason(state, clockValid, localTime);
+  response["control"]["reason"] =
+      getInhibitReason(state, clockValid, localTime);
 }
 
 esp_err_t statusHandler(httpd_req_t* request) {

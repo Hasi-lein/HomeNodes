@@ -18,17 +18,24 @@ A successful response is JSON:
 
 ```json
 {
-  "voltage": 53.42,
+  "sensors": {
+    "battery": {"voltage": 53.42},
+    "inverter": {"mode": 2}
+  },
   "updatedAt": 1792173477458
 }
 ```
 
-`updatedAt` is the response time as Unix milliseconds. `inverterMode` is the
-VE.Bus `/Mode` integer. Mode `2` is Inverter Only and is the sole mode that
-permits heating; mode `3` (`On`), Charger Only, and Off inhibit it. The endpoint
-returns `503 Service Unavailable` if either Victron value is missing or older
-than 120 seconds. The flow ignores non-numeric battery readings, voltages
-outside 30–65 V, and invalid mode values.
+`updatedAt` is the response time as Unix milliseconds. `sensors.inverter.mode`
+is the VE.Bus `/Mode` integer. Mode `2` is Inverter Only and is the sole mode
+that permits heating; mode `3` (`On`), Charger Only, and Off inhibit it. The
+endpoint returns `503 Service Unavailable` if either Victron value is missing
+or older than 120 seconds. The flow ignores non-numeric battery readings,
+voltages outside 30–65 V, and invalid mode values.
+
+This nested shape is the ESP32's private data-provider contract. The ESP32
+status API separately returns its client, named sensor, actuator and clock
+groups, without exposing inverter voltage or mode.
 
 The ESP32 polls this endpoint and applies both the 06:00–23:59 Europe/Berlin
 time window and the mode-2 requirement locally, together with its voltage

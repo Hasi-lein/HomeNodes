@@ -38,29 +38,57 @@ Every endpoint requires HTTP Basic Authentication over HTTPS using
 
 ### `GET /api/v1/status`
 
-Returns relay state, current automatic-control permission, recent battery
-voltage, Victron inverter mode, local time, clock-sync state and the reason
-heating is currently inhibited:
+Returns the client identity and API methods, named sensors and actuators, local
+time, clock-sync state and the reason heating is currently inhibited. Inverter
+voltage and mode remain internal to the relay control and are not exposed by
+this API; they are printed to USB serial for diagnostics.
 
 ```json
 {
-  "clientId": "esp32-relay-01",
-  "heaterEnabled": true,
-  "relay": {"state": "off"},
-  "batteryVoltage": 52.64,
-  "inverterMode": 2,
-  "inverterModeName": "Inverter Only",
-  "clockSynchronized": true,
-  "localTime": "2026-10-21T20:09:23",
-  "timeZone": "Europe/Berlin",
-  "reason": "automatic_control"
+  "client": {
+    "clientId": "esp32-relay-01",
+    "status": "on",
+    "methods": [
+      {"method": "GET", "path": "/api/v1/status"},
+      {"method": "POST", "path": "/api/v1/relay"}
+    ]
+  },
+  "sensors": [
+    {
+      "id": "room-climate",
+      "name": "Temperatur und Luftfeuchtigkeit",
+      "type": "DHT20",
+      "status": "on",
+      "temperatureC": 22.45,
+      "relativeHumidityPercent": 48.2
+    }
+  ],
+  "actuators": [
+    {
+      "id": "infrared-heater-relay",
+      "name": "Infrarot Heizung",
+      "type": "relay",
+      "status": "off",
+      "enabled": true
+    }
+  ],
+  "clock": {
+    "synchronized": true,
+    "localTime": "2026-10-21T20:09:23",
+    "timeZone": "Europe/Berlin"
+  },
+  "control": {"reason": "automatic_control"}
 }
 ```
 
-The sensor values and mode are `null` until a valid recent Node-RED sample is
-available. `reason` can be `disabled_by_api`, `clock_not_synchronized`,
-`outside_heating_hours`, `victron_data_unavailable`,
-`inverter_not_in_inverter_only_mode`, or `automatic_control`.
+Sensor readings are `null` and the sensor status is `off` until a valid DHT20
+sample less than 30 seconds old is available. The actuator's `status` is the
+physical relay state; `enabled` indicates whether automatic heater control was
+enabled through the API. `client.status` is `on` while Wi-Fi and the HTTPS API
+are available. `control.reason` can be `disabled_by_api`,
+`clock_not_synchronized`, `outside_heating_hours`,
+`victron_data_unavailable`, `inverter_not_in_inverter_only_mode`, or
+`automatic_control`.
 
 ### `POST /api/v1/relay`
 
@@ -106,8 +134,9 @@ server identity for this relay. The public certificate is also needed by API
 clients to validate the ESP32 HTTPS endpoint. Never disable TLS validation.
 
 Node-RED returns `503 Service Unavailable` when the voltage or inverter-mode
-measurement is missing or stale. It returns both `voltage` and
-`inverterMode` on success; mode `2` is the only mode that permits heating.
+measurement is missing or stale. Its internal response groups those readings
+under `sensors.battery.voltage` and `sensors.inverter.mode`; mode `2` is the
+only mode that permits heating.
 
 ## Clock synchronization
 

@@ -62,7 +62,9 @@ The ESP32 polls the Node-RED endpoint
 hysteresis (ON at 53.8 V, OFF at 52.1 V), permits heating only 06:00–23:59
 Europe/Berlin and only in Victron VE.Bus mode 2 (Inverter Only), and fails OFF
 when time or fresh Victron data is unavailable. Its HTTPS API reports status
-and lets an authorized caller enable automatic heating or force it off. Heater
+in client, sensor and actuator groups and lets an authorized caller enable
+automatic heating or force it off. Inverter voltage and mode are kept out of
+the API response and remain available in USB serial diagnostics. Heater
 permission resets to disabled after reboot.
 
 See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup

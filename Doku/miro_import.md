@@ -257,8 +257,8 @@ board. Node-RED on Venus OS reads `com.victronenergy.system/0` at
 every 60 seconds by default and makes the relay decision locally; MQTT is not
 used in this initial design.
 
-The Node-RED endpoint returns a JSON object with numeric `voltage`, integer
-`inverterMode` and `updatedAt` (Unix milliseconds), or `503 Service
+The Node-RED endpoint returns numeric `sensors.battery.voltage`, integer
+`sensors.inverter.mode` and `updatedAt` (Unix milliseconds), or `503 Service
 Unavailable` if either cached Victron value is missing or older than 120
 seconds. Node-RED must provide HTTPS and HTTP Basic Authentication for its
 HTTP In endpoint. The ESP32 trusts the configured server certificate/CA and

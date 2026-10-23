@@ -5,8 +5,9 @@ for the ESP32 relay client's HTTPS API.
 
 1. Install the **REST Client** extension (`humao.rest-client`) if needed.
 2. Open `esp32_relay.http` and set `@host` to the ESP32's mDNS name or IP.
-3. Send `GET /api/v1/status` to inspect relay state, voltage, inverter mode
-   and local time.
+3. Send `GET /api/v1/status` to inspect client connectivity, named sensor and
+   actuator state, and local time. Inverter voltage and mode are not exposed
+   through this API; they are available through USB serial diagnostics.
 4. Send `POST /api/v1/relay` with `{"state":"on"}` to enable automatic
    control, or `{"state":"off"}` to force the heater off.
 
