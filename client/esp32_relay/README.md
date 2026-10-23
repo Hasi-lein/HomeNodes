@@ -18,12 +18,16 @@ are true:
 - Victron VE.Bus mode is `2` (**Inverter Only**).
 - Battery voltage reaches **53.8 V** to turn ON. At or below **52.1 V**, it
   turns OFF; between those thresholds it retains the previous relay state.
+- A valid DHT20 measurement is available. The initial room-temperature target
+  is **21.0 °C** with a **0.5 °C total hysteresis band**: heating can turn ON
+  below **20.5 °C** and turns OFF at or above **21.0 °C**. Within that band the
+  current relay state is retained.
 
 An API `off` command always disables heater permission and immediately turns
 the relay OFF. Wi-Fi, HTTPS, authentication, stale-data, invalid-response,
-clock-sync, time-window, or inverter-mode failures also keep the relay OFF.
-API enable state is held in RAM only and is intentionally not restored after
-power loss or reboot.
+clock-sync, time-window, inverter-mode, or DHT20 failures also keep the relay
+OFF. API enable state is held in RAM only and is intentionally not restored
+after power loss or reboot.
 
 These voltage thresholds are the initial chosen values, not guaranteed SOC
 limits. Validate them and all fail-safe behavior before connecting or enabling
@@ -61,6 +65,12 @@ diagnostics.
       "timeZone": "Europe/Berlin"
     },
     "controlReason": "disabled_by_api",
+    "temperatureControl": {
+      "targetTemperatureC": 21,
+      "hysteresisC": 0.5,
+      "turnOnBelowC": 20.5,
+      "turnOffAtOrAboveC": 21
+    },
     "log": [
       {
         "timestamp": "2026-10-21T20:09:23",
@@ -114,8 +124,10 @@ describes only the physical relay.
 `client.controlReason` can be `disabled_by_api`,
 `clock_not_synchronized`, `outside_heating_hours`,
 `victron_data_unavailable`, `inverter_not_in_inverter_only_mode`, or
-`automatic_control`. `client.clock` contains the local time and synchronization
-state.
+`sensor_data_unavailable` or `automatic_control`. `client.clock` contains the
+local time and synchronization state. `client.temperatureControl` reports the
+active thermostat setpoint and switching thresholds. Change
+`HEATER_TARGET_TEMPERATURE_C` in `src/main.cpp` to adjust the initial setpoint.
 
 Persistent API logging is controlled by `API_LOGGING_ENABLED` in
 `src/main.cpp` and is **disabled by default**. While disabled, the firmware

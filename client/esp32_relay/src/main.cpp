@@ -33,6 +33,8 @@ constexpr char API_LOG_BACKUP_PATH[] = "/api.log.bak";
 constexpr bool API_LOGGING_ENABLED = false;
 constexpr float RELAY_TURN_ON_V = 53.8F;
 constexpr float RELAY_TURN_OFF_V = 52.1F;
+constexpr float HEATER_TARGET_TEMPERATURE_C = 21.0F;
+constexpr float HEATER_TEMPERATURE_HYSTERESIS_C = 0.5F;
 constexpr float MIN_VALID_BATTERY_V = 30.0F;
 constexpr float MAX_VALID_BATTERY_V = 65.0F;
 constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
@@ -492,6 +494,10 @@ const char* getInhibitReason(const ControlState& state, bool clockValid,
       millis() - state.victronDataReceivedAt > MAX_VICTRON_DATA_AGE_MS) {
     return "victron_data_unavailable";
   }
+  if (!state.hasDht20Data ||
+      millis() - state.dht20DataReceivedAt > MAX_SENSOR_DATA_AGE_MS) {
+    return "sensor_data_unavailable";
+  }
   if (state.inverterMode != INVERTER_ONLY_MODE) {
     return "inverter_not_in_inverter_only_mode";
   }
@@ -534,10 +540,18 @@ void applyRelayLogic() {
     return;
   }
 
-  if (state.batteryVoltage >= RELAY_TURN_ON_V) {
-    setRelay(true);
-  } else if (state.batteryVoltage <= RELAY_TURN_OFF_V) {
+  if (state.batteryVoltage <= RELAY_TURN_OFF_V) {
     setRelay(false);
+    return;
+  }
+
+  if (state.temperatureC >= HEATER_TARGET_TEMPERATURE_C) {
+    setRelay(false);
+  } else if (state.temperatureC <
+                 HEATER_TARGET_TEMPERATURE_C -
+                     HEATER_TEMPERATURE_HYSTERESIS_C &&
+             state.batteryVoltage >= RELAY_TURN_ON_V) {
+    setRelay(true);
   }
 }
 
@@ -753,6 +767,12 @@ void fillStatusResponse(JsonDocument& response) {
   clock["timeZone"] = "Europe/Berlin";
   client["controlReason"] =
       getInhibitReason(state, clockValid, localTime);
+  JsonObject temperatureControl = client["temperatureControl"].to<JsonObject>();
+  temperatureControl["targetTemperatureC"] = HEATER_TARGET_TEMPERATURE_C;
+  temperatureControl["hysteresisC"] = HEATER_TEMPERATURE_HYSTERESIS_C;
+  temperatureControl["turnOnBelowC"] =
+      HEATER_TARGET_TEMPERATURE_C - HEATER_TEMPERATURE_HYSTERESIS_C;
+  temperatureControl["turnOffAtOrAboveC"] = HEATER_TARGET_TEMPERATURE_C;
 
   JsonArray sensors = response["sensors"].to<JsonArray>();
   JsonObject climateSensor = sensors.add<JsonObject>();
