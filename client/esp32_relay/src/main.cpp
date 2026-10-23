@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
+#include <SPIFFS.h>
 #include <esp_https_server.h>
 #include <mbedtls/base64.h>
 
@@ -26,6 +27,10 @@ constexpr char DHT20_SENSOR_ID[] = "room-climate";
 constexpr char DHT20_SENSOR_NAME[] = "Temperatur und Luftfeuchtigkeit";
 constexpr char HEATER_RELAY_ID[] = "infrared-heater-relay";
 constexpr char HEATER_RELAY_NAME[] = "Infrarot Heizung";
+constexpr char API_LOG_PATH[] = "/api.log";
+constexpr char API_LOG_TEMP_PATH[] = "/api.log.tmp";
+constexpr char API_LOG_BACKUP_PATH[] = "/api.log.bak";
+constexpr bool API_LOGGING_ENABLED = false;
 constexpr float RELAY_TURN_ON_V = 53.8F;
 constexpr float RELAY_TURN_OFF_V = 52.1F;
 constexpr float MIN_VALID_BATTERY_V = 30.0F;
@@ -34,6 +39,8 @@ constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr unsigned long SENSOR_POLL_INTERVAL_MS = 10000;
 constexpr unsigned long MAX_SENSOR_DATA_AGE_MS = 30000;
 constexpr unsigned long MAX_VICTRON_DATA_AGE_MS = 120000;
+constexpr size_t MAX_API_LOG_ENTRIES = 50;
+constexpr size_t API_LOG_COMPACTION_THRESHOLD = 62;
 constexpr uint16_t HTTP_TIMEOUT_MS = 5000;
 constexpr int FIRST_ALLOWED_HOUR = 6;
 constexpr int LAST_ALLOWED_HOUR = 23;
@@ -65,6 +72,8 @@ bool wasWiFiConnected = false;
 bool hasPolledSinceWiFiConnect = false;
 bool mdnsStarted = false;
 bool dht20Initialized = false;
+bool apiLogStorageReady = false;
+bool apiLogWriteFailed = false;
 unsigned long lastPollAt = 0;
 unsigned long lastWiFiRetryAt = 0;
 unsigned long lastSensorPollAt = 0;
@@ -226,6 +235,247 @@ bool getLocalTime(struct tm& localTime) {
   return localtime_r(&now, &localTime) != nullptr;
 }
 
+String getLogTimestamp() {
+  struct tm localTime = {};
+  if (getLocalTime(localTime)) {
+    char formattedTime[24];
+    std::strftime(formattedTime, sizeof(formattedTime),
+                  "%Y-%m-%dT%H:%M:%S", &localTime);
+    return String(formattedTime);
+  }
+  return "uptime_ms:" + String(millis());
+}
+
+size_t countApiLogEntries(const char* path) {
+  File file = SPIFFS.open(path, FILE_READ);
+  if (!file) {
+    return 0;
+  }
+
+  size_t count = 0;
+  while (file.available()) {
+    if (file.readStringUntil('\n').length() > 0) {
+      ++count;
+    }
+  }
+  file.close();
+  return count;
+}
+
+bool trimApiLog(const char* path, const char* tempPath,
+                const char* backupPath) {
+  const size_t entryCount = countApiLogEntries(path);
+  if (entryCount < API_LOG_COMPACTION_THRESHOLD) {
+    return true;
+  }
+
+  File input = SPIFFS.open(path, FILE_READ);
+  if (!input) {
+    Serial.println("Could not open API log for rotation.");
+    return false;
+  }
+  File output = SPIFFS.open(tempPath, FILE_WRITE);
+  if (!output) {
+    input.close();
+    Serial.println("Could not create temporary API log for rotation.");
+    return false;
+  }
+
+  size_t entriesToSkip = entryCount - MAX_API_LOG_ENTRIES;
+  while (input.available()) {
+    String line = input.readStringUntil('\n');
+    if (line.isEmpty()) {
+      continue;
+    }
+    if (entriesToSkip > 0) {
+      --entriesToSkip;
+      continue;
+    }
+    if (output.println(line) == 0) {
+      input.close();
+      output.close();
+      Serial.println("Could not write rotated API log.");
+      return false;
+    }
+  }
+  input.close();
+  output.flush();
+  output.close();
+
+  SPIFFS.remove(backupPath);
+  if (!SPIFFS.rename(path, backupPath)) {
+    Serial.println("Could not preserve previous API log during rotation.");
+    return false;
+  }
+  if (!SPIFFS.rename(tempPath, path)) {
+    SPIFFS.rename(backupPath, path);
+    Serial.println("Could not install rotated API log.");
+    return false;
+  }
+  SPIFFS.remove(backupPath);
+  return true;
+}
+
+bool appendApiLogEntry(const char* path, const char* tempPath,
+                       const char* backupPath, const String& serializedEntry) {
+  File file = SPIFFS.open(path, FILE_APPEND);
+  if (!file || file.println(serializedEntry) == 0) {
+    if (file) {
+      file.close();
+    }
+    Serial.println("Could not append API transaction to SPIFFS.");
+    return false;
+  }
+  file.flush();
+  file.close();
+
+  if (!trimApiLog(path, tempPath, backupPath)) {
+    Serial.println("API log exceeds its rotation threshold.");
+    return false;
+  }
+  return true;
+}
+
+void appendApiLog(const char* method, const char* path,
+                  const String& requestSummary, const char* responseStatus,
+                  const String& responseSummary, const char* error) {
+  if (!API_LOGGING_ENABLED) {
+    return;
+  }
+  if (!apiLogStorageReady) {
+    Serial.println("API transaction was not persisted: SPIFFS is unavailable.");
+    return;
+  }
+
+  JsonDocument entry;
+  entry["timestamp"] = getLogTimestamp();
+  entry["method"] = method;
+  entry["path"] = path;
+  entry["request"] = requestSummary;
+  entry["responseStatus"] = responseStatus;
+  entry["response"] = responseSummary;
+  if (error != nullptr) {
+    entry["error"] = error;
+  }
+
+  String serializedEntry;
+  serializeJson(entry, serializedEntry);
+  const bool transactionStored =
+      appendApiLogEntry(API_LOG_PATH, API_LOG_TEMP_PATH, API_LOG_BACKUP_PATH,
+                        serializedEntry);
+  if (!transactionStored) {
+    Serial.println("API transaction was not persisted.");
+  }
+  apiLogWriteFailed = !transactionStored;
+}
+
+bool recoverApiLog(const char* path, const char* tempPath,
+                   const char* backupPath) {
+  if (!SPIFFS.exists(path) && SPIFFS.exists(backupPath) &&
+      !SPIFFS.rename(backupPath, path)) {
+    Serial.printf("Could not recover API log %s.\n", path);
+    return false;
+  }
+  if (SPIFFS.exists(tempPath)) {
+    SPIFFS.remove(tempPath);
+  }
+  return true;
+}
+
+bool apiLogContainsEntry(const String& entry) {
+  File file = SPIFFS.open(API_LOG_PATH, FILE_READ);
+  if (!file) {
+    return false;
+  }
+
+  bool found = false;
+  while (file.available()) {
+    if (file.readStringUntil('\n') == entry) {
+      found = true;
+      break;
+    }
+  }
+  file.close();
+  return found;
+}
+
+void initializeApiLogStorage() {
+  if (!API_LOGGING_ENABLED) {
+    Serial.println("Persistent API logging is disabled.");
+    return;
+  }
+
+  apiLogStorageReady = SPIFFS.begin(false, "/spiffs", 10, "spiffs");
+  if (!apiLogStorageReady) {
+    Serial.println("SPIFFS mount failed; initializing its dedicated partition.");
+    apiLogStorageReady = SPIFFS.begin(true, "/spiffs", 10, "spiffs");
+  }
+  if (!apiLogStorageReady) {
+    Serial.println("API log storage unavailable; API requests will not persist.");
+    return;
+  }
+
+  const bool transactionLogRecovered =
+      recoverApiLog(API_LOG_PATH, API_LOG_TEMP_PATH, API_LOG_BACKUP_PATH);
+  apiLogWriteFailed = !transactionLogRecovered;
+  File legacyErrorLog = SPIFFS.open("/api-errors.log", FILE_READ);
+  if (legacyErrorLog) {
+    while (legacyErrorLog.available()) {
+      const String line = legacyErrorLog.readStringUntil('\n');
+      if (line.isEmpty()) {
+        continue;
+      }
+      JsonDocument entry;
+      if (deserializeJson(entry, line) || !entry["error"].is<const char*>()) {
+        Serial.println("Skipping invalid record in legacy API error log.");
+        continue;
+      }
+      if (apiLogContainsEntry(line)) {
+        continue;
+      }
+      if (!appendApiLogEntry(API_LOG_PATH, API_LOG_TEMP_PATH,
+                             API_LOG_BACKUP_PATH, line)) {
+        apiLogWriteFailed = true;
+        break;
+      }
+    }
+    legacyErrorLog.close();
+  }
+  SPIFFS.remove("/api-errors.log");
+  SPIFFS.remove("/api-errors.log.tmp");
+  SPIFFS.remove("/api-errors.log.bak");
+  Serial.printf("API log storage mounted; retaining up to %u API calls.\n",
+                static_cast<unsigned int>(MAX_API_LOG_ENTRIES));
+}
+
+void addRecentApiLog(JsonArray log) {
+  if (!API_LOGGING_ENABLED || !apiLogStorageReady) {
+    return;
+  }
+
+  File file = SPIFFS.open(API_LOG_PATH, FILE_READ);
+  if (!file) {
+    return;
+  }
+
+  while (file.available()) {
+    const String line = file.readStringUntil('\n');
+    if (line.isEmpty()) {
+      continue;
+    }
+    JsonDocument entry;
+    if (deserializeJson(entry, line)) {
+      Serial.println("Skipping invalid record in API log.");
+      continue;
+    }
+    if (log.size() >= MAX_API_LOG_ENTRIES) {
+      log.remove(0);
+    }
+    log.add(entry);
+  }
+  file.close();
+}
+
 const char* getInhibitReason(const ControlState& state, bool clockValid,
                             const struct tm& localTime) {
   if (!state.heaterEnabled) {
@@ -246,6 +496,27 @@ const char* getInhibitReason(const ControlState& state, bool clockValid,
     return "inverter_not_in_inverter_only_mode";
   }
   return "automatic_control";
+}
+
+const char* getClientStatusReason(const ControlState& state, bool clockValid,
+                                  bool sensorDataIsFresh) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return "wifi_disconnected";
+  }
+  if (httpsServer == nullptr) {
+    return "https_api_unavailable";
+  }
+  if (!clockValid) {
+    return "clock_not_synchronized";
+  }
+  if (!state.hasVictronData ||
+      millis() - state.victronDataReceivedAt > MAX_VICTRON_DATA_AGE_MS) {
+    return "victron_data_unavailable";
+  }
+  if (!sensorDataIsFresh) {
+    return "sensor_data_unavailable";
+  }
+  return "active";
 }
 
 void applyRelayLogic() {
@@ -376,13 +647,25 @@ void pollNodeRed() {
 }
 
 void sendJson(httpd_req_t* request, const char* status,
-              JsonDocument& response) {
+              JsonDocument& response, const String& requestSummary,
+              const char* error = nullptr) {
+  JsonDocument logResponse;
+  logResponse.set(response);
+  logResponse["client"].remove("log");
+  String responseSummary;
+  serializeJson(logResponse, responseSummary);
+
   String body;
   serializeJson(response, body);
   httpd_resp_set_status(request, status);
   httpd_resp_set_type(request, "application/json");
   httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-  httpd_resp_send(request, body.c_str(), body.length());
+  const esp_err_t sendResult =
+      httpd_resp_send(request, body.c_str(), body.length());
+  const char* sendError =
+      sendResult == ESP_OK ? error : "response_send_failed";
+  appendApiLog(request->method == HTTP_GET ? "GET" : "POST", request->uri,
+               requestSummary, status, responseSummary, sendError);
 }
 
 bool isAuthorized(httpd_req_t* request) {
@@ -418,23 +701,35 @@ bool requireAuthorization(httpd_req_t* request) {
   httpd_resp_set_hdr(request, "WWW-Authenticate",
                      "Basic realm=\"HomeNodes client\"");
   httpd_resp_set_type(request, "application/json");
-  httpd_resp_sendstr(request, "{\"error\":\"unauthorized\"}");
+  const char* response = "{\"error\":\"unauthorized\"}";
+  const esp_err_t sendResult = httpd_resp_sendstr(request, response);
+  appendApiLog(request->method == HTTP_GET ? "GET" : "POST", request->uri, "",
+               "401 Unauthorized", response,
+               sendResult == ESP_OK ? "unauthorized" : "response_send_failed");
   return false;
 }
 
 void fillStatusResponse(JsonDocument& response) {
   const ControlState state = getControlState();
-  struct tm localTime = {};
-  const bool clockValid = getLocalTime(localTime);
   const unsigned long now = millis();
   const bool sensorDataIsFresh =
       state.hasDht20Data &&
       now - state.dht20DataReceivedAt <= MAX_SENSOR_DATA_AGE_MS;
+  struct tm localTime = {};
+  const bool clockValid = getLocalTime(localTime);
+  const char* clientStatusReason =
+      getClientStatusReason(state, clockValid, sensorDataIsFresh);
 
   JsonObject client = response["client"].to<JsonObject>();
   client["clientId"] = CLIENT_ID;
   client["status"] =
-      WiFi.status() == WL_CONNECTED && httpsServer != nullptr ? "on" : "off";
+      std::strcmp(clientStatusReason, "active") == 0 ? "active" : "error";
+  client["statusReason"] = clientStatusReason;
+  client["logEnabled"] = API_LOGGING_ENABLED;
+  client["logStorageStatus"] =
+      !API_LOGGING_ENABLED
+          ? "disabled"
+          : apiLogStorageReady && !apiLogWriteFailed ? "ready" : "error";
   JsonArray methods = client["methods"].to<JsonArray>();
   JsonObject statusMethod = methods.add<JsonObject>();
   statusMethod["method"] = "GET";
@@ -442,6 +737,22 @@ void fillStatusResponse(JsonDocument& response) {
   JsonObject relayMethod = methods.add<JsonObject>();
   relayMethod["method"] = "POST";
   relayMethod["path"] = "/api/v1/relay";
+  JsonArray log = client["log"].to<JsonArray>();
+  addRecentApiLog(log);
+
+  JsonObject clock = client["clock"].to<JsonObject>();
+  clock["synchronized"] = clockValid;
+  if (clockValid) {
+    char formattedTime[24];
+    std::strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%dT%H:%M:%S",
+                  &localTime);
+    clock["localTime"] = formattedTime;
+  } else {
+    clock["localTime"] = nullptr;
+  }
+  clock["timeZone"] = "Europe/Berlin";
+  client["controlReason"] =
+      getInhibitReason(state, clockValid, localTime);
 
   JsonArray sensors = response["sensors"].to<JsonArray>();
   JsonObject climateSensor = sensors.add<JsonObject>();
@@ -464,22 +775,6 @@ void fillStatusResponse(JsonDocument& response) {
   heaterRelay["name"] = HEATER_RELAY_NAME;
   heaterRelay["type"] = "relay";
   heaterRelay["status"] = state.relayIsOn ? "on" : "off";
-  heaterRelay["enabled"] = state.heaterEnabled;
-
-  JsonObject clock = response["clock"].to<JsonObject>();
-  clock["synchronized"] = clockValid;
-  if (clockValid) {
-    char formattedTime[24];
-    std::strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%dT%H:%M:%S",
-                  &localTime);
-    clock["localTime"] = formattedTime;
-  } else {
-    clock["localTime"] = nullptr;
-  }
-  clock["timeZone"] = "Europe/Berlin";
-
-  response["control"]["reason"] =
-      getInhibitReason(state, clockValid, localTime);
 }
 
 esp_err_t statusHandler(httpd_req_t* request) {
@@ -489,13 +784,15 @@ esp_err_t statusHandler(httpd_req_t* request) {
 
   JsonDocument response;
   fillStatusResponse(response);
-  sendJson(request, "200 OK", response);
+  sendJson(request, "200 OK", response, "");
   return ESP_OK;
 }
 
-bool readRequestedHeaterState(httpd_req_t* request, bool& enabled) {
+bool readRequestedHeaterState(httpd_req_t* request, bool& enabled,
+                              String& requestSummary) {
   if (request->content_len == 0 ||
       request->content_len > MAX_REQUEST_BODY_LENGTH) {
+    requestSummary = "invalid_or_empty_body";
     return false;
   }
 
@@ -505,6 +802,7 @@ bool readRequestedHeaterState(httpd_req_t* request, bool& enabled) {
     const int result = httpd_req_recv(
         request, body + received, request->content_len - received);
     if (result <= 0) {
+      requestSummary = "incomplete_body";
       return false;
     }
     received += static_cast<size_t>(result);
@@ -514,18 +812,22 @@ bool readRequestedHeaterState(httpd_req_t* request, bool& enabled) {
   JsonDocument requestBody;
   const DeserializationError error = deserializeJson(requestBody, body);
   if (error || !requestBody["state"].is<const char*>()) {
+    requestSummary = "invalid_json_or_missing_state";
     return false;
   }
 
   const char* requestedState = requestBody["state"];
   if (std::strcmp(requestedState, "on") == 0) {
     enabled = true;
+    requestSummary = "{\"state\":\"on\"}";
     return true;
   }
   if (std::strcmp(requestedState, "off") == 0) {
     enabled = false;
+    requestSummary = "{\"state\":\"off\"}";
     return true;
   }
+  requestSummary = "invalid_state";
   return false;
 }
 
@@ -535,18 +837,24 @@ esp_err_t relayHandler(httpd_req_t* request) {
   }
 
   bool enabled = false;
-  if (!readRequestedHeaterState(request, enabled)) {
+  String requestSummary;
+  if (!readRequestedHeaterState(request, enabled, requestSummary)) {
+    const char* errorResponse =
+        "{\"error\":\"expected JSON body with state on or off\"}";
     httpd_resp_set_status(request, "400 Bad Request");
     httpd_resp_set_type(request, "application/json");
-    httpd_resp_sendstr(
-        request, "{\"error\":\"expected JSON body with state on or off\"}");
+    const esp_err_t sendResult = httpd_resp_sendstr(request, errorResponse);
+    appendApiLog("POST", request->uri, requestSummary, "400 Bad Request",
+                 errorResponse, sendResult == ESP_OK
+                                    ? "invalid_relay_request"
+                                    : "response_send_failed");
     return ESP_OK;
   }
 
   setHeaterEnabled(enabled);
   JsonDocument response;
   fillStatusResponse(response);
-  sendJson(request, "200 OK", response);
+  sendJson(request, "200 OK", response, requestSummary);
   return ESP_OK;
 }
 
@@ -640,6 +948,7 @@ void startNetworkServices() {
 
 void setup() {
   Serial.begin(115200);
+  initializeApiLogStorage();
 
   digitalWrite(RELAY_PIN, RELAY_OFF_LEVEL);
   pinMode(RELAY_PIN, OUTPUT);
