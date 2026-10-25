@@ -29,6 +29,11 @@
           <strong id="humidity" class="reading-value">—</strong>
           <span class="reading-time">Relative Luftfeuchtigkeit</span>
         </article>
+        <article class="reading-card battery-card">
+          <span class="reading-label">Akku-Spannung</span>
+          <strong id="battery-voltage" class="reading-value">—</strong>
+          <span class="reading-time">Victron-Batterie</span>
+        </article>
       </section>
 
       <section class="heater-card" aria-labelledby="heater-heading">
@@ -69,7 +74,7 @@
         <div class="chart-heading">
           <div>
             <p class="eyebrow">MESSVERLAUF</p>
-            <h2 id="chart-heading">Raumklima</h2>
+            <h2 id="chart-heading">Raumklima und Akku</h2>
           </div>
           <label for="range">Zeitraum</label>
           <select id="range">
@@ -83,14 +88,15 @@
         <div class="legend" aria-hidden="true">
           <span><i class="legend-dot temperature-dot"></i>Temperatur (°C)</span>
           <span><i class="legend-dot humidity-dot"></i>Luftfeuchtigkeit (%)</span>
+          <span><i class="legend-dot battery-dot"></i>Akku-Spannung (V)</span>
         </div>
         <div class="chart-wrap">
-          <canvas id="chart" aria-label="Grafik von Temperatur und Luftfeuchtigkeit"></canvas>
+          <canvas id="chart" aria-label="Grafik von Temperatur, Luftfeuchtigkeit und Akku-Spannung"></canvas>
           <div id="chart-tooltip" class="chart-tooltip" role="status" hidden></div>
         </div>
         <p id="chart-message" class="chart-message" aria-live="polite"></p>
       </section>
-      <footer>Messung alle 10 Sekunden · Die letzten bis zu 10.000 Werte liegen auf diesem Raspberry Pi.</footer>
+      <footer>Messung jede Minute · Die letzten bis zu 10.000 Werte liegen auf diesem Raspberry Pi.</footer>
     </main>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>

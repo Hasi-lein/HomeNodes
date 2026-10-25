@@ -12,7 +12,15 @@ def make_status(sensor):
                 "controlReason": "automatic_control",
                 "temperatureControl": {"targetTemperatureC": 21.0},
             },
-            "sensors": [sensor],
+            "sensors": [
+                sensor,
+                {
+                    "id": "battery-voltage",
+                    "type": "battery",
+                    "status": "on",
+                    "voltageV": 53.42,
+                },
+            ],
             "actuators": [
                 {
                     "id": "infrared-heater-relay",
@@ -42,6 +50,7 @@ class Esp32StatusTests(unittest.TestCase):
             {
                 "temperatureC": 22.45,
                 "humidityPercent": 48.2,
+                "batteryVoltageV": 53.42,
                 "heater": {
                     "relayStatus": "off",
                     "enabled": True,
@@ -95,6 +104,62 @@ class Esp32StatusTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "humidity"):
             decode_status_response(response)
+
+    def test_ignores_stale_battery_voltage(self):
+        payload = json.loads(
+            make_status(
+                {
+                    "id": "room-climate",
+                    "type": "DHT20",
+                    "status": "on",
+                    "temperatureC": 20.0,
+                    "relativeHumidityPercent": 50.0,
+                }
+            )
+        )
+        payload["sensors"][1].update(status="off", voltageV=None)
+
+        self.assertIsNone(
+            decode_status_response(json.dumps(payload).encode("utf-8"))[
+                "batteryVoltageV"
+            ]
+        )
+
+    def test_accepts_status_without_battery_sensor(self):
+        payload = json.loads(
+            make_status(
+                {
+                    "id": "room-climate",
+                    "type": "DHT20",
+                    "status": "on",
+                    "temperatureC": 20.0,
+                    "relativeHumidityPercent": 50.0,
+                }
+            )
+        )
+        payload["sensors"] = payload["sensors"][:1]
+
+        self.assertIsNone(
+            decode_status_response(json.dumps(payload).encode("utf-8"))[
+                "batteryVoltageV"
+            ]
+        )
+
+    def test_rejects_invalid_fresh_battery_voltage(self):
+        payload = json.loads(
+            make_status(
+                {
+                    "id": "room-climate",
+                    "type": "DHT20",
+                    "status": "on",
+                    "temperatureC": 20.0,
+                    "relativeHumidityPercent": 50.0,
+                }
+            )
+        )
+        payload["sensors"][1]["voltageV"] = "53.4"
+        with self.assertRaisesRegex(RuntimeError, "battery voltage"):
+            decode_status_response(json.dumps(payload).encode("utf-8"))
 
     def test_rejects_invalid_json(self):
         with self.assertRaisesRegex(RuntimeError, "invalid JSON"):

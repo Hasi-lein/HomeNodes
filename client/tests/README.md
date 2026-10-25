@@ -8,8 +8,8 @@ for the ESP32 relay client's HTTPS API.
 3. Send `GET /api/v1/status` to inspect client health (`client.status` is
    `active`/`error`), named sensor and actuator state, `client.clock`, and
    `client.controlReason`. The actuator status alone reports relay `on`/`off`.
-   Inverter voltage and mode are not exposed through this API; they are
-   available through USB serial diagnostics.
+   Fresh battery voltage is exposed as a named sensor. Inverter mode remains
+   internal and is available through USB serial diagnostics.
 4. Send `POST /api/v1/relay` with `{"state":"on"}` to enable automatic
    control, or `{"state":"off"}` to force the heater off. This permission is
    persistent and restored after reboot; defaults to disabled on first boot.

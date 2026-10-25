@@ -881,6 +881,20 @@ void fillStatusResponse(JsonDocument& response) {
     climateSensor["relativeHumidityPercent"] = nullptr;
   }
 
+  JsonObject batterySensor = sensors.add<JsonObject>();
+  batterySensor["id"] = "battery-voltage";
+  batterySensor["name"] = "Akku";
+  batterySensor["type"] = "battery";
+  const bool batteryDataIsFresh =
+      state.hasVictronData &&
+      now - state.victronDataReceivedAt <= MAX_VICTRON_DATA_AGE_MS;
+  batterySensor["status"] = batteryDataIsFresh ? "on" : "off";
+  if (batteryDataIsFresh) {
+    batterySensor["voltageV"] = state.batteryVoltage;
+  } else {
+    batterySensor["voltageV"] = nullptr;
+  }
+
   JsonArray actuators = response["actuators"].to<JsonArray>();
   JsonObject heaterRelay = actuators.add<JsonObject>();
   heaterRelay["id"] = HEATER_RELAY_ID;

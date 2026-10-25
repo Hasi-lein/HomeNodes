@@ -8,7 +8,7 @@ services:
     env_file:
       - .env
     environment:
-      SAMPLE_INTERVAL_SECONDS: "10"
+      SAMPLE_INTERVAL_SECONDS: "60"
       JSONL_PATH: /data/readings.jsonl
       ESP32_CA_CERT: /certs/esp32-relay-cert.pem
       SENSOR_NAME: Raumklima

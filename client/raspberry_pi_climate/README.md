@@ -1,10 +1,11 @@
 # Raspberry Pi room-climate client
 
 This Dockerized Python client polls the ESP32 relay's authenticated HTTPS
-status endpoint every 10 seconds, reads its fresh DHT20 temperature and
-relative-humidity values, and appends timestamped measurements to a JSON Lines
-file. It serves an HTTPS browser dashboard with a hoverable graph. The Pi
-does not connect to the sensor over I²C.
+status endpoint once per minute, reads its fresh DHT20 temperature,
+relative-humidity and battery-voltage values, and appends timestamped
+measurements to a JSON Lines file. It serves an HTTPS browser dashboard with a
+hoverable graph for temperature, humidity and battery voltage. The Pi does not
+connect to the sensor over I²C.
 
 The target is a Raspberry Pi 3B running 32-bit Raspberry Pi OS. The dashboard
 is available on the local network at `https://junge.local`.
@@ -101,20 +102,27 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
-The Python service polls the ESP32 every 10 seconds. It logs API, TLS, stale
+The Python service polls the ESP32 once per minute. It logs API, TLS, stale
 sensor and JSON errors explicitly and does not record a failed sample. The
 chart's hover tooltip shows the Pi's UTC request time and the returned
-temperature and humidity. The heater panel shows the physical relay state,
+temperature and humidity. The dashboard also shows the latest fresh battery
+voltage reported by the ESP32. The heater panel shows the physical relay state,
 automatic-control permission and ESP32 control reason. Its target-temperature
 form changes the ESP32's persistent setpoint; accepted values are 5–35 °C.
 The API credentials stay on the Pi and are never sent to the browser.
+The battery tile remains `—` until the ESP32 is running firmware that includes
+the battery-voltage sensor in its status response.
+The chart plots battery voltage on its own scale and includes it in the hover
+tooltip; historic records without a voltage value simply omit that series.
 
 The JSON Lines archive is stored at `data/readings.jsonl`. Each line is one
-measurement with an ISO-8601 UTC sample time, temperature and humidity. Up to
+measurement with an ISO-8601 UTC sample time, temperature, humidity and (when
+available) battery voltage. Up to
 the latest **10,000** records are retained for the API and graph. To reduce SD
 card writes, the file is compacted atomically in batches: it can grow by up to
 1,000 entries past the retention target before it is rewritten with the newest
-10,000. At a 10-second interval, the graph holds about 27 hours of history.
+10,000. At a one-minute interval, the archive holds about seven days of
+history.
 
 Useful commands:
 

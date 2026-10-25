@@ -119,6 +119,7 @@ class JsonLinesStore:
         sampled_at = record.get("sampledAt")
         temperature = record.get("temperatureC")
         humidity = record.get("humidityPercent")
+        battery_voltage = record.get("batteryVoltageV")
         if not isinstance(sampled_at, str):
             return False
         if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
@@ -126,6 +127,12 @@ class JsonLinesStore:
         if isinstance(humidity, bool) or not isinstance(humidity, (int, float)):
             return False
         if not math.isfinite(temperature) or not math.isfinite(humidity):
+            return False
+        if battery_voltage is not None and (
+            isinstance(battery_voltage, bool)
+            or not isinstance(battery_voltage, (int, float))
+            or not math.isfinite(battery_voltage)
+        ):
             return False
         try:
             timestamp = datetime.fromisoformat(sampled_at)
@@ -311,21 +318,31 @@ def run_sensor_loop(
             measurement = sensor.read()
             temperature_c = measurement["temperatureC"]
             humidity_percent = measurement["humidityPercent"]
+            battery_voltage_v = measurement.get("batteryVoltageV")
             heater = measurement["heater"]
             if (
                 isinstance(temperature_c, bool)
                 or not isinstance(temperature_c, (int, float))
                 or isinstance(humidity_percent, bool)
                 or not isinstance(humidity_percent, (int, float))
+                or (
+                    battery_voltage_v is not None
+                    and (
+                        isinstance(battery_voltage_v, bool)
+                        or not isinstance(battery_voltage_v, (int, float))
+                        or not math.isfinite(battery_voltage_v)
+                    )
+                )
                 or not isinstance(heater, dict)
             ):
-                raise RuntimeError("ESP32 returned an invalid climate status")
+                raise RuntimeError("ESP32 returned an invalid climate or battery status")
             sampled_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             store.append(
                 {
                     "sampledAt": sampled_at,
                     "temperatureC": temperature_c,
                     "humidityPercent": humidity_percent,
+                    "batteryVoltageV": battery_voltage_v,
                     "heater": heater,
                 }
             )
@@ -355,7 +372,7 @@ def main() -> None:
     jsonl_path = os.environ.get("JSONL_PATH", "/data/readings.jsonl")
     try:
         interval_seconds = float(
-            os.environ.get("SAMPLE_INTERVAL_SECONDS", "10")
+            os.environ.get("SAMPLE_INTERVAL_SECONDS", "60")
         )
     except ValueError as error:
         raise SystemExit("SAMPLE_INTERVAL_SECONDS must be a positive number") from error

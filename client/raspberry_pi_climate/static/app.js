@@ -1,5 +1,6 @@
 const temperatureElement = document.querySelector("#temperature");
 const humidityElement = document.querySelector("#humidity");
+const batteryVoltageElement = document.querySelector("#battery-voltage");
 const sampleTimeElement = document.querySelector("#sample-time");
 const connectionElement = document.querySelector("#connection");
 const rangeElement = document.querySelector("#range");
@@ -19,6 +20,7 @@ const context = canvas.getContext("2d");
 const colors = {
   temperature: "#d56443",
   humidity: "#3185a3",
+  battery: "#a07824",
   grid: "#e9eeeb",
   text: "#7b8981",
 };
@@ -87,10 +89,14 @@ async function loadStatus() {
     if (reading) {
       temperatureElement.textContent = `${reading.temperatureC.toFixed(1)} °C`;
       humidityElement.textContent = `${reading.humidityPercent.toFixed(1)} %`;
+      batteryVoltageElement.textContent = Number.isFinite(reading.batteryVoltageV)
+        ? `${reading.batteryVoltageV.toFixed(2)} V`
+        : "—";
       sampleTimeElement.textContent = `Letzte Messung: ${formatTime(reading.sampledAt)}`;
     } else {
       temperatureElement.textContent = "—";
       humidityElement.textContent = "—";
+      batteryVoltageElement.textContent = "—";
       sampleTimeElement.textContent = "Warte auf erste Messung";
     }
 
@@ -138,11 +144,12 @@ async function saveTargetTemperature(event) {
 }
 
 function graphSeries(points) {
-  return [
+  const series = [
     {
       key: "temperatureC",
       color: colors.temperature,
       unit: "°C",
+      axis: "left",
       min: Math.floor(Math.min(...points.map((point) => point.temperatureC)) - 1),
       max: Math.ceil(Math.max(...points.map((point) => point.temperatureC)) + 1),
     },
@@ -150,6 +157,7 @@ function graphSeries(points) {
       key: "humidityPercent",
       color: colors.humidity,
       unit: "%",
+      axis: "right",
       min: Math.max(
         0,
         Math.floor(Math.min(...points.map((point) => point.humidityPercent)) - 5),
@@ -160,6 +168,23 @@ function graphSeries(points) {
       ),
     },
   ];
+  const batteryVoltages = points
+    .map((point) => point.batteryVoltageV)
+    .filter(Number.isFinite);
+  if (batteryVoltages.length > 0) {
+    const minVoltage = Math.min(...batteryVoltages);
+    const maxVoltage = Math.max(...batteryVoltages);
+    const padding = Math.max(0.2, (maxVoltage - minVoltage) * 0.1);
+    series.push({
+      key: "batteryVoltageV",
+      color: colors.battery,
+      unit: " V",
+      axis: "right-secondary",
+      min: Math.floor((minVoltage - padding) * 10) / 10,
+      max: Math.ceil((maxVoltage + padding) * 10) / 10,
+    });
+  }
+  return series;
 }
 
 function drawChart(points, selectedIndex = -1) {
@@ -171,9 +196,7 @@ function drawChart(points, selectedIndex = -1) {
 
   const width = bounds.width;
   const height = bounds.height;
-  const margin = { top: 12, right: 12, bottom: 34, left: 48 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
+  const margin = { top: 12, right: 96, bottom: 34, left: 48 };
   context.clearRect(0, 0, width, height);
   chartPoints = points;
 
@@ -190,6 +213,11 @@ function drawChart(points, selectedIndex = -1) {
   const maxTime = Math.max(...times);
   const timeSpan = Math.max(1, maxTime - minTime);
   const series = graphSeries(points);
+  if (series.every((item) => item.key !== "batteryVoltageV")) {
+    margin.right = 48;
+  }
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
   chartGeometry = { margin, plotWidth, plotHeight, minTime, timeSpan, times, series };
 
   for (let tick = 0; tick <= 4; tick += 1) {
@@ -219,26 +247,42 @@ function drawChart(points, selectedIndex = -1) {
       const y = margin.top + (plotHeight * tick) / 4;
       context.fillStyle = item.color;
       context.font = "10px system-ui, sans-serif";
-      context.textAlign = "right";
-      context.fillText(`${value.toFixed(0)}${item.unit}`, margin.left - 7, y + 4);
+      if (item.axis === "left") {
+        context.textAlign = "right";
+        context.fillText(`${value.toFixed(0)}${item.unit}`, margin.left - 7, y + 4);
+      } else {
+        context.textAlign = "left";
+        const axisOffset = item.axis === "right-secondary" ? 46 : 6;
+        context.fillText(
+          `${value.toFixed(item.axis === "right-secondary" ? 1 : 0)}${item.unit}`,
+          width - margin.right + axisOffset,
+          y + 4,
+        );
+      }
     }
 
     context.beginPath();
     context.strokeStyle = item.color;
     context.lineWidth = 2;
+    let previousPointIsValid = false;
     points.forEach((point, index) => {
+      const value = point[item.key];
+      if (!Number.isFinite(value)) {
+        previousPointIsValid = false;
+        return;
+      }
       const x = margin.left + ((times[index] - minTime) / timeSpan) * plotWidth;
-      const y =
-        margin.top + ((item.max - point[item.key]) / valueRange) * plotHeight;
-      if (index === 0) {
+      const y = margin.top + ((item.max - value) / valueRange) * plotHeight;
+      if (!previousPointIsValid) {
         context.moveTo(x, y);
       } else {
         context.lineTo(x, y);
       }
+      previousPointIsValid = true;
     });
     context.stroke();
 
-    if (selectedIndex >= 0) {
+    if (selectedIndex >= 0 && Number.isFinite(points[selectedIndex][item.key])) {
       const selectedPoint = points[selectedIndex];
       const x =
         margin.left +
@@ -293,7 +337,10 @@ function updateTooltip(event) {
   tooltipElement.textContent =
     `${formatTime(point.sampledAt)}\n` +
     `Temperatur: ${point.temperatureC.toFixed(1)} °C\n` +
-    `Luftfeuchtigkeit: ${point.humidityPercent.toFixed(1)} %`;
+    `Luftfeuchtigkeit: ${point.humidityPercent.toFixed(1)} %` +
+    (Number.isFinite(point.batteryVoltageV)
+      ? `\nAkku-Spannung: ${point.batteryVoltageV.toFixed(2)} V`
+      : "");
   tooltipElement.hidden = false;
   const tooltipWidth = tooltipElement.offsetWidth;
   const left = Math.min(
@@ -337,4 +384,4 @@ canvas.addEventListener("pointerleave", () => {
 });
 window.addEventListener("resize", () => drawChart(chartPoints));
 refresh();
-window.setInterval(refresh, 10000);
+window.setInterval(refresh, 60000);

@@ -43,9 +43,9 @@ Every endpoint requires HTTP Basic Authentication over HTTPS using
 ### `GET /api/v1/status`
 
 Returns client identity and API methods, clock and control reason, named
-sensors, and actuators. Inverter voltage and mode remain internal to relay
-control and are not exposed by this API; they are printed to USB serial for
-diagnostics.
+sensors, and actuators. Fresh battery voltage is exposed as a battery sensor;
+inverter mode remains internal to relay control and is printed to USB serial
+for diagnostics.
 
 ```json
 {
@@ -83,6 +83,13 @@ diagnostics.
       "status": "on",
       "temperatureC": 22.45,
       "relativeHumidityPercent": 48.2
+    },
+    {
+      "id": "battery-voltage",
+      "name": "Akku",
+      "type": "battery",
+      "status": "on",
+      "voltageV": 53.42
     }
   ],
   "actuators": [
@@ -97,7 +104,9 @@ diagnostics.
 ```
 
 Sensor readings are `null` and the sensor status is `off` until a valid DHT20
-sample less than 30 seconds old is available. The actuator's single `status`
+sample less than 30 seconds old is available. Battery voltage is `null` and
+its status is `off` until valid Node-RED data less than 120 seconds old is
+available. The actuator's single `status`
 field is the physical relay state. Automatic-control permission can be inferred
 from `client.controlReason`: `disabled_by_api` means it is disabled; any other
 reason means permission is enabled but may be inhibited. The reason reports the

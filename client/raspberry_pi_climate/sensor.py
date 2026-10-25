@@ -65,6 +65,25 @@ def decode_status_response(response: bytes) -> dict[str, object]:
     ):
         raise RuntimeError("ESP32 returned an invalid relative humidity")
 
+    battery_voltage_v = None
+    battery = next(
+        (
+            item
+            for item in sensors
+            if isinstance(item, dict) and item.get("id") == "battery-voltage"
+        ),
+        None,
+    )
+    if battery is not None and battery.get("status") == "on":
+        voltage = battery.get("voltageV")
+        if (
+            isinstance(voltage, bool)
+            or not isinstance(voltage, (int, float))
+            or not math.isfinite(voltage)
+        ):
+            raise RuntimeError("ESP32 returned an invalid battery voltage")
+        battery_voltage_v = float(voltage)
+
     client = payload.get("client")
     if not isinstance(client, dict):
         raise RuntimeError("ESP32 status response has no client object")
@@ -106,6 +125,7 @@ def decode_status_response(response: bytes) -> dict[str, object]:
     return {
         "temperatureC": float(temperature),
         "humidityPercent": float(humidity),
+        "batteryVoltageV": battery_voltage_v,
         "heater": {
             "relayStatus": heater["status"],
             "enabled": client.get("heaterEnabled") is True,
