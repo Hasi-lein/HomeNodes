@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f6f3">
+    <title>{{ sensor_name }} · HomeNodes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">HOMENODES · RASPBERRY PI</p>
+          <h1>{{ sensor_name }}</h1>
+          <p class="subtitle">Temperatur und Luftfeuchtigkeit im Zeitverlauf</p>
+        </div>
+        <div id="connection" class="connection" role="status">Verbinde …</div>
+      </header>
+
+      <section class="readings" aria-label="Aktuelle Messwerte">
+        <article class="reading-card temperature-card">
+          <span class="reading-label">Temperatur</span>
+          <strong id="temperature" class="reading-value">—</strong>
+          <span id="sample-time" class="reading-time">Warte auf erste Messung</span>
+        </article>
+        <article class="reading-card humidity-card">
+          <span class="reading-label">Luftfeuchtigkeit</span>
+          <strong id="humidity" class="reading-value">—</strong>
+          <span class="reading-time">Relative Luftfeuchtigkeit</span>
+        </article>
+      </section>
+
+      <section class="chart-card" aria-labelledby="chart-heading">
+        <div class="chart-heading">
+          <div>
+            <p class="eyebrow">MESSVERLAUF</p>
+            <h2 id="chart-heading">Raumklima</h2>
+          </div>
+          <label for="range">Zeitraum</label>
+          <select id="range">
+            <option value="1">Letzte Stunde</option>
+            <option value="6">Letzte 6 Stunden</option>
+            <option value="24" selected>Letzte 24 Stunden</option>
+            <option value="168">Letzte 7 Tage</option>
+            <option value="720">Letzte 30 Tage</option>
+          </select>
+        </div>
+        <div class="legend" aria-hidden="true">
+          <span><i class="legend-dot temperature-dot"></i>Temperatur (°C)</span>
+          <span><i class="legend-dot humidity-dot"></i>Luftfeuchtigkeit (%)</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart" aria-label="Grafik von Temperatur und Luftfeuchtigkeit"></canvas>
+          <div id="chart-tooltip" class="chart-tooltip" role="status" hidden></div>
+        </div>
+        <p id="chart-message" class="chart-message" aria-live="polite"></p>
+      </section>
+      <footer>Messung alle 10 Sekunden · Die letzten bis zu 10.000 Werte liegen auf diesem Raspberry Pi.</footer>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </body>
+</html>

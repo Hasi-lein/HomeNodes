@@ -6,6 +6,7 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <SPIFFS.h>
+#include <Preferences.h>
 #include <esp_https_server.h>
 #include <mbedtls/base64.h>
 
@@ -30,10 +31,12 @@ constexpr char HEATER_RELAY_NAME[] = "Infrarot Heizung";
 constexpr char API_LOG_PATH[] = "/api.log";
 constexpr char API_LOG_TEMP_PATH[] = "/api.log.tmp";
 constexpr char API_LOG_BACKUP_PATH[] = "/api.log.bak";
-constexpr bool API_LOGGING_ENABLED = false;
+constexpr bool DEFAULT_API_LOGGING_ENABLED = false;
+constexpr float DEFAULT_HEATER_TARGET_TEMPERATURE_C = 21.0F;
+constexpr float MIN_HEATER_TARGET_TEMPERATURE_C = 5.0F;
+constexpr float MAX_HEATER_TARGET_TEMPERATURE_C = 35.0F;
 constexpr float RELAY_TURN_ON_V = 53.8F;
 constexpr float RELAY_TURN_OFF_V = 52.1F;
-constexpr float HEATER_TARGET_TEMPERATURE_C = 21.0F;
 constexpr float HEATER_TEMPERATURE_HYSTERESIS_C = 0.5F;
 constexpr float MIN_VALID_BATTERY_V = 30.0F;
 constexpr float MAX_VALID_BATTERY_V = 65.0F;
@@ -50,6 +53,7 @@ constexpr int INVERTER_ONLY_MODE = 2;
 constexpr time_t MIN_VALID_EPOCH = 1704067200;
 constexpr size_t MAX_AUTH_HEADER_LENGTH = 160;
 constexpr size_t MAX_REQUEST_BODY_LENGTH = 128;
+constexpr char SETTINGS_NAMESPACE[] = "homenodes";
 constexpr char TIME_ZONE[] = "CET-1CEST,M3.5.0,M10.5.0/3";
 
 struct ControlState {
@@ -68,6 +72,11 @@ struct ControlState {
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 ControlState controlState = {false, false, false, 0.0F, 0, 0,
                             false, 0.0F, 0.0F, 0};
+Preferences settingsStore;
+bool settingsStorageReady = false;
+bool settingsWriteFailed = false;
+bool apiLoggingEnabled = DEFAULT_API_LOGGING_ENABLED;
+float heaterTargetTemperatureC = DEFAULT_HEATER_TARGET_TEMPERATURE_C;
 httpd_handle_t httpsServer = nullptr;
 String basicAuthHeader;
 bool wasWiFiConnected = false;
@@ -205,10 +214,13 @@ bool readDht20(float& temperature, float& humidity) {
   return true;
 }
 
+void applyRelayLogic();
+
 void pollDht20() {
   if (!dht20Initialized) {
     dht20Initialized = initializeDht20();
     if (!dht20Initialized) {
+      applyRelayLogic();
       return;
     }
   }
@@ -225,6 +237,8 @@ void pollDht20() {
 
     Serial.printf("DHT20: temperature %.2f C, humidity %.2f %%\n",
                   temperature, humidity);
+  } else {
+    applyRelayLogic();
   }
 }
 
@@ -341,7 +355,7 @@ bool appendApiLogEntry(const char* path, const char* tempPath,
 void appendApiLog(const char* method, const char* path,
                   const String& requestSummary, const char* responseStatus,
                   const String& responseSummary, const char* error) {
-  if (!API_LOGGING_ENABLED) {
+  if (!apiLoggingEnabled) {
     return;
   }
   if (!apiLogStorageReady) {
@@ -401,10 +415,10 @@ bool apiLogContainsEntry(const String& entry) {
   return found;
 }
 
-void initializeApiLogStorage() {
-  if (!API_LOGGING_ENABLED) {
+bool initializeApiLogStorage() {
+  if (!apiLoggingEnabled) {
     Serial.println("Persistent API logging is disabled.");
-    return;
+    return false;
   }
 
   apiLogStorageReady = SPIFFS.begin(false, "/spiffs", 10, "spiffs");
@@ -414,7 +428,7 @@ void initializeApiLogStorage() {
   }
   if (!apiLogStorageReady) {
     Serial.println("API log storage unavailable; API requests will not persist.");
-    return;
+    return false;
   }
 
   const bool transactionLogRecovered =
@@ -448,10 +462,11 @@ void initializeApiLogStorage() {
   SPIFFS.remove("/api-errors.log.bak");
   Serial.printf("API log storage mounted; retaining up to %u API calls.\n",
                 static_cast<unsigned int>(MAX_API_LOG_ENTRIES));
+  return !apiLogWriteFailed;
 }
 
 void addRecentApiLog(JsonArray log) {
-  if (!API_LOGGING_ENABLED || !apiLogStorageReady) {
+  if (!apiLoggingEnabled || !apiLogStorageReady) {
     return;
   }
 
@@ -476,6 +491,38 @@ void addRecentApiLog(JsonArray log) {
     log.add(entry);
   }
   file.close();
+}
+
+void loadPersistentSettings() {
+  settingsStorageReady = settingsStore.begin(SETTINGS_NAMESPACE, false);
+  if (!settingsStorageReady) {
+    Serial.println("Could not open NVS settings; using firmware defaults.");
+    settingsWriteFailed = true;
+    return;
+  }
+
+  controlState.heaterEnabled = settingsStore.getBool("heaterEnabled", false);
+  const float storedTargetTemperature =
+      settingsStore.getFloat("targetTemp", DEFAULT_HEATER_TARGET_TEMPERATURE_C);
+  if (std::isfinite(storedTargetTemperature) &&
+      storedTargetTemperature >= MIN_HEATER_TARGET_TEMPERATURE_C &&
+      storedTargetTemperature <= MAX_HEATER_TARGET_TEMPERATURE_C) {
+    heaterTargetTemperatureC = storedTargetTemperature;
+  } else {
+    Serial.println("Stored temperature target is invalid; using 21.0 C.");
+    heaterTargetTemperatureC = DEFAULT_HEATER_TARGET_TEMPERATURE_C;
+    if (settingsStore.putFloat("targetTemp", heaterTargetTemperatureC) !=
+        sizeof(float)) {
+      Serial.println("Could not restore the default temperature target in NVS.");
+      settingsWriteFailed = true;
+    }
+  }
+  apiLoggingEnabled =
+      settingsStore.getBool("logEnabled", DEFAULT_API_LOGGING_ENABLED);
+  Serial.printf("Loaded settings: heater %s, target %.1f C, API logging %s.\n",
+                controlState.heaterEnabled ? "enabled" : "disabled",
+                heaterTargetTemperatureC,
+                apiLoggingEnabled ? "enabled" : "disabled");
 }
 
 const char* getInhibitReason(const ControlState& state, bool clockValid,
@@ -515,6 +562,9 @@ const char* getClientStatusReason(const ControlState& state, bool clockValid,
   if (!clockValid) {
     return "clock_not_synchronized";
   }
+  if (!settingsStorageReady || settingsWriteFailed) {
+    return "settings_storage_unavailable";
+  }
   if (!state.hasVictronData ||
       millis() - state.victronDataReceivedAt > MAX_VICTRON_DATA_AGE_MS) {
     return "victron_data_unavailable";
@@ -545,26 +595,64 @@ void applyRelayLogic() {
     return;
   }
 
-  if (state.temperatureC >= HEATER_TARGET_TEMPERATURE_C) {
+  if (state.temperatureC >= heaterTargetTemperatureC) {
     setRelay(false);
   } else if (state.temperatureC <
-                 HEATER_TARGET_TEMPERATURE_C -
+                 heaterTargetTemperatureC -
                      HEATER_TEMPERATURE_HYSTERESIS_C &&
              state.batteryVoltage >= RELAY_TURN_ON_V) {
     setRelay(true);
   }
 }
 
-void setHeaterEnabled(bool enabled) {
-  portENTER_CRITICAL(&stateMux);
-  controlState.heaterEnabled = enabled;
-  portEXIT_CRITICAL(&stateMux);
+bool persistBoolSetting(const char* key, bool value) {
+  if (!settingsStorageReady ||
+      settingsStore.putBool(key, value) != sizeof(bool)) {
+    settingsWriteFailed = true;
+    Serial.printf("Could not persist NVS setting '%s'.\n", key);
+    return false;
+  }
+  settingsWriteFailed = false;
+  return true;
+}
+
+bool setHeaterEnabled(bool enabled) {
+  if (!settingsStorageReady) {
+    settingsWriteFailed = true;
+    Serial.println("Cannot change heater permission: NVS is unavailable.");
+    if (!enabled) {
+      portENTER_CRITICAL(&stateMux);
+      controlState.heaterEnabled = false;
+      portEXIT_CRITICAL(&stateMux);
+      setRelay(false);
+    }
+    return false;
+  }
 
   if (!enabled) {
+    portENTER_CRITICAL(&stateMux);
+    controlState.heaterEnabled = false;
+    portEXIT_CRITICAL(&stateMux);
     setRelay(false);
-  } else {
-    applyRelayLogic();
   }
+
+  if (controlState.heaterEnabled == enabled &&
+      settingsStore.getBool("heaterEnabled", false) == enabled) {
+    return true;
+  }
+
+  if (enabled) {
+    if (!persistBoolSetting("heaterEnabled", true)) {
+      return false;
+    }
+    portENTER_CRITICAL(&stateMux);
+    controlState.heaterEnabled = true;
+    portEXIT_CRITICAL(&stateMux);
+    applyRelayLogic();
+    return true;
+  }
+
+  return persistBoolSetting("heaterEnabled", false);
 }
 
 bool readVictronState(float& voltage, int& inverterMode) {
@@ -739,9 +827,10 @@ void fillStatusResponse(JsonDocument& response) {
   client["status"] =
       std::strcmp(clientStatusReason, "active") == 0 ? "active" : "error";
   client["statusReason"] = clientStatusReason;
-  client["logEnabled"] = API_LOGGING_ENABLED;
+  client["heaterEnabled"] = state.heaterEnabled;
+  client["logEnabled"] = apiLoggingEnabled;
   client["logStorageStatus"] =
-      !API_LOGGING_ENABLED
+      !apiLoggingEnabled
           ? "disabled"
           : apiLogStorageReady && !apiLogWriteFailed ? "ready" : "error";
   JsonArray methods = client["methods"].to<JsonArray>();
@@ -751,6 +840,9 @@ void fillStatusResponse(JsonDocument& response) {
   JsonObject relayMethod = methods.add<JsonObject>();
   relayMethod["method"] = "POST";
   relayMethod["path"] = "/api/v1/relay";
+  JsonObject settingsMethod = methods.add<JsonObject>();
+  settingsMethod["method"] = "POST";
+  settingsMethod["path"] = "/api/v1/settings";
   JsonArray log = client["log"].to<JsonArray>();
   addRecentApiLog(log);
 
@@ -768,11 +860,11 @@ void fillStatusResponse(JsonDocument& response) {
   client["controlReason"] =
       getInhibitReason(state, clockValid, localTime);
   JsonObject temperatureControl = client["temperatureControl"].to<JsonObject>();
-  temperatureControl["targetTemperatureC"] = HEATER_TARGET_TEMPERATURE_C;
+  temperatureControl["targetTemperatureC"] = heaterTargetTemperatureC;
   temperatureControl["hysteresisC"] = HEATER_TEMPERATURE_HYSTERESIS_C;
   temperatureControl["turnOnBelowC"] =
-      HEATER_TARGET_TEMPERATURE_C - HEATER_TEMPERATURE_HYSTERESIS_C;
-  temperatureControl["turnOffAtOrAboveC"] = HEATER_TARGET_TEMPERATURE_C;
+      heaterTargetTemperatureC - HEATER_TEMPERATURE_HYSTERESIS_C;
+  temperatureControl["turnOffAtOrAboveC"] = heaterTargetTemperatureC;
 
   JsonArray sensors = response["sensors"].to<JsonArray>();
   JsonObject climateSensor = sensors.add<JsonObject>();
@@ -851,6 +943,106 @@ bool readRequestedHeaterState(httpd_req_t* request, bool& enabled,
   return false;
 }
 
+bool persistFloatSetting(const char* key, float value) {
+  if (!settingsStorageReady ||
+      settingsStore.putFloat(key, value) != sizeof(float)) {
+    settingsWriteFailed = true;
+    Serial.printf("Could not persist NVS setting '%s'.\n", key);
+    return false;
+  }
+  settingsWriteFailed = false;
+  return true;
+}
+
+bool readSettingsRequest(httpd_req_t* request, bool& hasTargetTemperature,
+                         float& targetTemperature, bool& hasHeaterSetting,
+                         bool& heaterEnabled, bool& hasLoggingSetting,
+                         bool& loggingEnabled, String& requestSummary) {
+  if (request->content_len == 0 ||
+      request->content_len > MAX_REQUEST_BODY_LENGTH) {
+    requestSummary = "invalid_or_empty_body";
+    return false;
+  }
+
+  char body[MAX_REQUEST_BODY_LENGTH + 1];
+  size_t received = 0;
+  while (received < request->content_len) {
+    const int result = httpd_req_recv(
+        request, body + received, request->content_len - received);
+    if (result <= 0) {
+      requestSummary = "incomplete_body";
+      return false;
+    }
+    received += static_cast<size_t>(result);
+  }
+  body[received] = '\0';
+
+  JsonDocument requestBody;
+  const DeserializationError error = deserializeJson(requestBody, body);
+  if (error || !requestBody.is<JsonObject>()) {
+    requestSummary = "invalid_json";
+    return false;
+  }
+
+  JsonObjectConst settings = requestBody.as<JsonObjectConst>();
+  if (settings.size() != 1) {
+    requestSummary = "expected_exactly_one_setting";
+    return false;
+  }
+
+  JsonVariantConst targetValue = settings["targetTemperatureC"];
+  if (!targetValue.isUnbound()) {
+    if ((!targetValue.is<float>() && !targetValue.is<double>() &&
+         !targetValue.is<int>()) ||
+        !std::isfinite(targetValue.as<float>())) {
+      requestSummary = "invalid_target_temperature";
+      return false;
+    }
+    targetTemperature = targetValue.as<float>();
+    if (targetTemperature < MIN_HEATER_TARGET_TEMPERATURE_C ||
+        targetTemperature > MAX_HEATER_TARGET_TEMPERATURE_C) {
+      requestSummary = "target_temperature_out_of_range";
+      return false;
+    }
+    hasTargetTemperature = true;
+    requestSummary = "{\"targetTemperatureC\":" +
+                     String(targetTemperature, 1) + "}";
+    return true;
+  }
+
+  JsonVariantConst heaterValue = settings["heaterEnabled"];
+  if (!heaterValue.isUnbound() && heaterValue.is<bool>()) {
+    hasHeaterSetting = true;
+    heaterEnabled = heaterValue.as<bool>();
+    requestSummary = String("{\"heaterEnabled\":") +
+                     (heaterEnabled ? "true}" : "false}");
+    return true;
+  }
+
+  JsonVariantConst loggingValue = settings["apiLoggingEnabled"];
+  if (!loggingValue.isUnbound() && loggingValue.is<bool>()) {
+    hasLoggingSetting = true;
+    loggingEnabled = loggingValue.as<bool>();
+    requestSummary =
+        String("{\"apiLoggingEnabled\":") +
+        (loggingEnabled ? "true}" : "false}");
+    return true;
+  }
+
+  requestSummary = "unknown_setting_or_invalid_type";
+  return false;
+}
+
+void sendApiError(httpd_req_t* request, const char* status,
+                  const char* response, const String& requestSummary,
+                  const char* error) {
+  httpd_resp_set_status(request, status);
+  httpd_resp_set_type(request, "application/json");
+  const esp_err_t sendResult = httpd_resp_sendstr(request, response);
+  appendApiLog("POST", request->uri, requestSummary, status, response,
+               sendResult == ESP_OK ? error : "response_send_failed");
+}
+
 esp_err_t relayHandler(httpd_req_t* request) {
   if (!requireAuthorization(request)) {
     return ESP_OK;
@@ -859,19 +1051,94 @@ esp_err_t relayHandler(httpd_req_t* request) {
   bool enabled = false;
   String requestSummary;
   if (!readRequestedHeaterState(request, enabled, requestSummary)) {
-    const char* errorResponse =
-        "{\"error\":\"expected JSON body with state on or off\"}";
-    httpd_resp_set_status(request, "400 Bad Request");
-    httpd_resp_set_type(request, "application/json");
-    const esp_err_t sendResult = httpd_resp_sendstr(request, errorResponse);
-    appendApiLog("POST", request->uri, requestSummary, "400 Bad Request",
-                 errorResponse, sendResult == ESP_OK
-                                    ? "invalid_relay_request"
-                                    : "response_send_failed");
+    sendApiError(request, "400 Bad Request",
+                 "{\"error\":\"expected JSON body with state on or off\"}",
+                 requestSummary, "invalid_relay_request");
     return ESP_OK;
   }
 
-  setHeaterEnabled(enabled);
+  if (!setHeaterEnabled(enabled)) {
+    sendApiError(request, "500 Internal Server Error",
+                 "{\"error\":\"could_not_persist_heater_setting\"}",
+                 requestSummary, "settings_persist_failed");
+    return ESP_OK;
+  }
+  JsonDocument response;
+  fillStatusResponse(response);
+  sendJson(request, "200 OK", response, requestSummary);
+  return ESP_OK;
+}
+
+esp_err_t settingsHandler(httpd_req_t* request) {
+  if (!requireAuthorization(request)) {
+    return ESP_OK;
+  }
+
+  bool hasTargetTemperature = false;
+  float targetTemperature = heaterTargetTemperatureC;
+  bool hasHeaterSetting = false;
+  bool heaterEnabled = false;
+  bool hasLoggingSetting = false;
+  bool loggingEnabled = apiLoggingEnabled;
+  String requestSummary;
+  if (!readSettingsRequest(
+          request, hasTargetTemperature, targetTemperature, hasHeaterSetting,
+          heaterEnabled, hasLoggingSetting, loggingEnabled, requestSummary)) {
+    sendApiError(
+        request, "400 Bad Request",
+        "{\"error\":\"expected one setting: targetTemperatureC (5-35), heaterEnabled (boolean), or apiLoggingEnabled (boolean)\"}",
+        requestSummary, "invalid_settings_request");
+    return ESP_OK;
+  }
+
+  if (!settingsStorageReady) {
+    sendApiError(request, "500 Internal Server Error",
+                 "{\"error\":\"settings_storage_unavailable\"}",
+                 requestSummary, "settings_storage_unavailable");
+    return ESP_OK;
+  }
+
+  if (hasTargetTemperature) {
+    if (heaterTargetTemperatureC != targetTemperature &&
+        !persistFloatSetting("targetTemp", targetTemperature)) {
+      sendApiError(request, "500 Internal Server Error",
+                   "{\"error\":\"could_not_persist_temperature_target\"}",
+                   requestSummary, "settings_persist_failed");
+      return ESP_OK;
+    }
+    heaterTargetTemperatureC = targetTemperature;
+    applyRelayLogic();
+  } else if (hasHeaterSetting) {
+    if (!setHeaterEnabled(heaterEnabled)) {
+      sendApiError(request, "500 Internal Server Error",
+                   "{\"error\":\"could_not_persist_heater_setting\"}",
+                   requestSummary, "settings_persist_failed");
+      return ESP_OK;
+    }
+  } else if (hasLoggingSetting) {
+    const bool previousLoggingSetting = apiLoggingEnabled;
+    if (loggingEnabled && !apiLogStorageReady) {
+      apiLoggingEnabled = true;
+      if (!initializeApiLogStorage()) {
+        apiLoggingEnabled = previousLoggingSetting;
+        sendApiError(request, "500 Internal Server Error",
+                     "{\"error\":\"api_log_storage_unavailable\"}",
+                     requestSummary, "api_log_storage_unavailable");
+        return ESP_OK;
+      }
+    }
+
+    if (previousLoggingSetting != loggingEnabled &&
+        !persistBoolSetting("logEnabled", loggingEnabled)) {
+      apiLoggingEnabled = previousLoggingSetting;
+      sendApiError(request, "500 Internal Server Error",
+                   "{\"error\":\"could_not_persist_logging_setting\"}",
+                   requestSummary, "settings_persist_failed");
+      return ESP_OK;
+    }
+    apiLoggingEnabled = loggingEnabled;
+  }
+
   JsonDocument response;
   fillStatusResponse(response);
   sendJson(request, "200 OK", response, requestSummary);
@@ -924,9 +1191,12 @@ bool startHttpsServer() {
       "/api/v1/status", HTTP_GET, statusHandler, nullptr};
   const httpd_uri_t relayUri = {
       "/api/v1/relay", HTTP_POST, relayHandler, nullptr};
+  const httpd_uri_t settingsUri = {
+      "/api/v1/settings", HTTP_POST, settingsHandler, nullptr};
 
   if (httpd_register_uri_handler(httpsServer, &statusUri) != ESP_OK ||
-      httpd_register_uri_handler(httpsServer, &relayUri) != ESP_OK) {
+      httpd_register_uri_handler(httpsServer, &relayUri) != ESP_OK ||
+      httpd_register_uri_handler(httpsServer, &settingsUri) != ESP_OK) {
     Serial.println("Could not register ESP32 HTTPS API routes.");
     httpd_ssl_stop(httpsServer);
     httpsServer = nullptr;
@@ -968,12 +1238,12 @@ void startNetworkServices() {
 
 void setup() {
   Serial.begin(115200);
-  initializeApiLogStorage();
 
   digitalWrite(RELAY_PIN, RELAY_OFF_LEVEL);
   pinMode(RELAY_PIN, OUTPUT);
   controlState.relayIsOn = false;
-  controlState.heaterEnabled = false;
+  loadPersistentSettings();
+  initializeApiLogStorage();
 
   Wire.begin(DHT20_SDA_PIN, DHT20_SCL_PIN);
   Serial.printf("DHT20 I2C pins: SDA GPIO %u, SCL GPIO %u.\n",
@@ -986,9 +1256,11 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.printf(
-      "Starting %s; heater disabled until API enable; polling Node-RED every "
+      "Starting %s; heater permission %s from persistent settings; polling "
+      "Node-RED every "
       "%lu ms; NTP server %s.\n",
-      CLIENT_ID, static_cast<unsigned long>(POLL_INTERVAL_MS), NTP_SERVER);
+      CLIENT_ID, controlState.heaterEnabled ? "enabled" : "disabled",
+      static_cast<unsigned long>(POLL_INTERVAL_MS), NTP_SERVER);
 }
 
 void loop() {

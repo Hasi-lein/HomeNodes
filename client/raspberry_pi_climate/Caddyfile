@@ -1,0 +1,8 @@
+:80 {
+    redir https://{host}{uri} permanent
+}
+
+:443 {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy climate:8000
+}

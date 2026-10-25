@@ -10,6 +10,9 @@
 .pio/
 build/
 cmake-build-*/
+client/raspberry_pi_climate/data/
+client/raspberry_pi_climate/certs/
+__pycache__/
 
 # Editor and operating-system files
 .DS_Store

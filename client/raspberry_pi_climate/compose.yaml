@@ -1,0 +1,31 @@
+services:
+  climate:
+    build: .
+    container_name: homenodes-climate
+    restart: unless-stopped
+    extra_hosts:
+      - "esp32-relay-01.local:${ESP32_HOST_IP:?Set ESP32_HOST_IP in .env}"
+    env_file:
+      - .env
+    environment:
+      SAMPLE_INTERVAL_SECONDS: "10"
+      JSONL_PATH: /data/readings.jsonl
+      ESP32_CA_CERT: /certs/esp32-relay-cert.pem
+      SENSOR_NAME: Raumklima
+    volumes:
+      - ./data:/data
+      - ./certs/esp32-relay-cert.pem:/certs/esp32-relay-cert.pem:ro
+
+  https:
+    image: caddy:2-alpine
+    container_name: homenodes-climate-https
+    restart: unless-stopped
+    depends_on:
+      - climate
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key:ro

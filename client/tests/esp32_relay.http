@@ -2,7 +2,7 @@
 @username = {{$prompt 'HomeNodes API username'}}
 @password = {{$prompt 'ESP32 API password'}}
 
-### Read relay, heating permission, voltage, inverter mode, and local time
+### Read client health, sensor and actuator status, and local time
 # @name status
 GET https://{{host}}/api/v1/status
 Authorization: Basic {{username}} {{password}}
@@ -28,4 +28,59 @@ Accept: application/json
 
 {
   "state": "off"
+}
+
+### Set the persistent heater target temperature (5-35 C)
+# @name setTargetTemperature
+POST https://{{host}}/api/v1/settings
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "targetTemperatureC": 21
+}
+
+### Persistently enable automatic heater control
+# @name enableHeaterSetting
+POST https://{{host}}/api/v1/settings
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "heaterEnabled": true
+}
+
+### Persistently disable automatic heater control
+# @name disableHeaterSetting
+POST https://{{host}}/api/v1/settings
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "heaterEnabled": false
+}
+
+### Enable persistent API transaction logging
+# @name enableApiLogging
+POST https://{{host}}/api/v1/settings
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "apiLoggingEnabled": true
+}
+
+### Disable persistent API transaction logging
+# @name disableApiLogging
+POST https://{{host}}/api/v1/settings
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "apiLoggingEnabled": false
 }

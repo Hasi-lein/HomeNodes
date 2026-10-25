@@ -11,12 +11,17 @@ for the ESP32 relay client's HTTPS API.
    Inverter voltage and mode are not exposed through this API; they are
    available through USB serial diagnostics.
 4. Send `POST /api/v1/relay` with `{"state":"on"}` to enable automatic
-   control, or `{"state":"off"}` to force the heater off.
+   control, or `{"state":"off"}` to force the heater off. This permission is
+   persistent and restored after reboot; defaults to disabled on first boot.
+5. Use `POST /api/v1/settings` to persistently set the thermostat target
+   (`{"targetTemperatureC":21}`; 5-35 °C), heater permission
+   (`{"heaterEnabled":true}`), or API logging
+   (`{"apiLoggingEnabled":true}`). Send exactly one setting per request.
 
 An `on` request only enables the automatic control; time, voltage, and
-Victron-mode requirements still apply. Heater permission resets to disabled
-after reboot. Keep the heater and mains loads disconnected during initial
-testing.
+Victron-mode and temperature requirements still apply. The relay itself always
+starts off and can only energize after the safety conditions are satisfied.
+Keep the heater and mains loads disconnected during initial testing.
 
 The REST Client extension currently does not validate server certificates.
 A successful request is not proof of TLS certificate or hostname validation.
