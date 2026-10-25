@@ -104,7 +104,10 @@ docker compose logs -f
 The Python service polls the ESP32 every 10 seconds. It logs API, TLS, stale
 sensor and JSON errors explicitly and does not record a failed sample. The
 chart's hover tooltip shows the Pi's UTC request time and the returned
-temperature and humidity.
+temperature and humidity. The heater panel shows the physical relay state,
+automatic-control permission and ESP32 control reason. Its target-temperature
+form changes the ESP32's persistent setpoint; accepted values are 5–35 °C.
+The API credentials stay on the Pi and are never sent to the browser.
 
 The JSON Lines archive is stored at `data/readings.jsonl`. Each line is one
 measurement with an ISO-8601 UTC sample time, temperature and humidity. Up to
@@ -131,10 +134,15 @@ docker compose down
   24 hours, 7 days or 30 days.
 - `/api/v1/status` — app health and latest saved reading.
 - `/api/v1/readings?hours=24` — timestamped readings for a supported period.
+- `POST /api/v1/heater/target` — update the persistent ESP32 setpoint with
+  `{"targetTemperatureC":22.5}`.
 
 The browser HTTPS certificate encrypts traffic and verifies the dashboard
 server after its CA is trusted. It does not authenticate users. Keep the
 dashboard on a trusted home network and do not expose it to the internet.
+The setpoint endpoint is available to clients on that network; ESP32 API
+credentials remain server-side, and only the target-temperature setting is
+forwarded.
 
 ## Local checks
 

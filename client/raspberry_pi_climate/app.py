@@ -15,7 +15,11 @@ from typing import Protocol
 from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
-from sensor import Esp32ClimateApi
+from sensor import (
+    MAX_TARGET_TEMPERATURE_C,
+    MIN_TARGET_TEMPERATURE_C,
+    Esp32ClimateApi,
+)
 
 
 LOG = logging.getLogger("homenodes.climate")
@@ -25,7 +29,11 @@ GRAPH_RANGES_HOURS = {1, 6, 24, 168, 720}
 
 
 class Sensor(Protocol):
-    def read(self) -> tuple[float, float]: ...
+    def read(self) -> dict[str, object]: ...
+
+    def set_target_temperature(
+        self, target_temperature_c: float
+    ) -> dict[str, object]: ...
 
 
 class ClimateState:
@@ -33,21 +41,28 @@ class ClimateState:
         self._lock = threading.Lock()
         self.last_error: str | None = None
         self.last_success_at: str | None = None
+        self.heater: dict[str, object] | None = None
 
-    def record_success(self, sampled_at: str) -> None:
+    def record_success(self, sampled_at: str, heater: dict[str, object]) -> None:
         with self._lock:
             self.last_success_at = sampled_at
             self.last_error = None
+            self.heater = heater
 
     def record_error(self, error: str) -> None:
         with self._lock:
             self.last_error = error
 
-    def snapshot(self) -> dict[str, str | None]:
+    def update_heater(self, heater: dict[str, object]) -> None:
+        with self._lock:
+            self.heater = heater
+
+    def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
                 "lastSuccessAt": self.last_success_at,
                 "lastError": self.last_error,
+                "heater": self.heater,
             }
 
 
@@ -190,6 +205,9 @@ def create_app(
     store = store or JsonLinesStore(jsonl_path)
     app = Flask(__name__)
     state = ClimateState()
+    latest = store.latest()
+    if latest is not None and isinstance(latest.get("heater"), dict):
+        state.update_heater(latest["heater"])
     app.config["JSONL_PATH"] = jsonl_path
     app.config["SENSOR_NAME"] = sensor_name
     app.extensions["climate_state"] = state
@@ -211,9 +229,13 @@ def create_app(
                     "status": "error" if status_data["lastError"] else (
                         "active" if status_data["lastSuccessAt"] else "waiting"
                     ),
-                    **status_data,
+                    "lastSuccessAt": status_data["lastSuccessAt"],
+                    "lastError": status_data["lastError"],
                 },
                 "reading": latest,
+                "heater": status_data["heater"] or (
+                    latest.get("heater") if latest else None
+                ),
             }
         )
 
@@ -235,6 +257,44 @@ def create_app(
             }
         )
 
+    @app.post("/api/v1/heater/target")
+    def set_heater_target():
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 415
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"targetTemperatureC"}:
+            return jsonify(
+                {"error": "Provide only targetTemperatureC in the JSON body"}
+            ), 400
+
+        target_temperature = payload["targetTemperatureC"]
+        if (
+            isinstance(target_temperature, bool)
+            or not isinstance(target_temperature, (int, float))
+            or not math.isfinite(target_temperature)
+        ):
+            return jsonify({"error": "targetTemperatureC must be a finite number"}), 400
+        if not (
+            MIN_TARGET_TEMPERATURE_C
+            <= target_temperature
+            <= MAX_TARGET_TEMPERATURE_C
+        ):
+            return jsonify(
+                {"error": "targetTemperatureC must be between 5 and 35 °C"}
+            ), 400
+
+        climate_sensor = app.extensions.get("climate_sensor")
+        if climate_sensor is None:
+            return jsonify({"error": "ESP32 API is not configured"}), 503
+        try:
+            heater = climate_sensor.set_target_temperature(float(target_temperature))
+        except (OSError, RuntimeError, ValueError) as error:
+            LOG.error("Could not update ESP32 heater target: %s", error)
+            return jsonify({"error": str(error)}), 502
+
+        state.update_heater(heater)
+        return jsonify({"heater": heater})
+
     return app
 
 
@@ -248,16 +308,28 @@ def run_sensor_loop(
     next_sample_at = time.monotonic()
     while not stop_event.is_set():
         try:
-            temperature_c, humidity_percent = sensor.read()
+            measurement = sensor.read()
+            temperature_c = measurement["temperatureC"]
+            humidity_percent = measurement["humidityPercent"]
+            heater = measurement["heater"]
+            if (
+                isinstance(temperature_c, bool)
+                or not isinstance(temperature_c, (int, float))
+                or isinstance(humidity_percent, bool)
+                or not isinstance(humidity_percent, (int, float))
+                or not isinstance(heater, dict)
+            ):
+                raise RuntimeError("ESP32 returned an invalid climate status")
             sampled_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             store.append(
                 {
                     "sampledAt": sampled_at,
                     "temperatureC": temperature_c,
                     "humidityPercent": humidity_percent,
+                    "heater": heater,
                 }
             )
-            state.record_success(sampled_at)
+            state.record_success(sampled_at, heater)
             LOG.info(
                 "Recorded temperature %.2f C and humidity %.2f%% at %s",
                 temperature_c,
@@ -317,6 +389,7 @@ def main() -> None:
             "ESP32_CA_CERT", "/certs/esp32-relay-cert.pem"
         ),
     )
+    app.extensions["climate_sensor"] = sensor
     stop_event = threading.Event()
     sampler = threading.Thread(
         target=run_sensor_loop,

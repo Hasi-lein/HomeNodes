@@ -5,7 +5,23 @@ from sensor import decode_status_response
 
 
 def make_status(sensor):
-    return json.dumps({"sensors": [sensor]}).encode("utf-8")
+    return json.dumps(
+        {
+            "client": {
+                "heaterEnabled": True,
+                "controlReason": "automatic_control",
+                "temperatureControl": {"targetTemperatureC": 21.0},
+            },
+            "sensors": [sensor],
+            "actuators": [
+                {
+                    "id": "infrared-heater-relay",
+                    "type": "relay",
+                    "status": "off",
+                }
+            ],
+        }
+    ).encode("utf-8")
 
 
 class Esp32StatusTests(unittest.TestCase):
@@ -21,7 +37,19 @@ class Esp32StatusTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(decode_status_response(response), (22.45, 48.2))
+        self.assertEqual(
+            decode_status_response(response),
+            {
+                "temperatureC": 22.45,
+                "humidityPercent": 48.2,
+                "heater": {
+                    "relayStatus": "off",
+                    "enabled": True,
+                    "controlReason": "automatic_control",
+                    "targetTemperatureC": 21.0,
+                },
+            },
+        )
 
     def test_finds_dht20_by_type_when_id_is_different(self):
         response = make_status(
@@ -34,7 +62,9 @@ class Esp32StatusTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(decode_status_response(response), (20.0, 50.0))
+        self.assertEqual(
+            decode_status_response(response)["temperatureC"], 20.0
+        )
 
     def test_rejects_stale_sensor_reading(self):
         response = make_status(
@@ -69,6 +99,20 @@ class Esp32StatusTests(unittest.TestCase):
     def test_rejects_invalid_json(self):
         with self.assertRaisesRegex(RuntimeError, "invalid JSON"):
             decode_status_response(b"{")
+
+    def test_rejects_missing_heater_state(self):
+        payload = json.loads(make_status(
+            {
+                "id": "room-climate",
+                "type": "DHT20",
+                "status": "on",
+                "temperatureC": 20.0,
+                "relativeHumidityPercent": 50.0,
+            }
+        ))
+        payload["actuators"] = []
+        with self.assertRaisesRegex(RuntimeError, "heater relay"):
+            decode_status_response(json.dumps(payload).encode("utf-8"))
 
 
 if __name__ == "__main__":

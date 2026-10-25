@@ -18,6 +18,20 @@ def make_record(sampled_at, temperature=21.25, humidity=48.5):
     }
 
 
+class FakeClimateApi:
+    def __init__(self):
+        self.target_temperature = 21.0
+
+    def set_target_temperature(self, target_temperature_c):
+        self.target_temperature = target_temperature_c
+        return {
+            "relayStatus": "off",
+            "enabled": True,
+            "controlReason": "automatic_control",
+            "targetTemperatureC": target_temperature_c,
+        }
+
+
 class ClimateApiTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -41,7 +55,14 @@ class ClimateApiTests(unittest.TestCase):
         self.assertIsNone(data["reading"])
 
     def test_status_returns_latest_appended_reading(self):
-        self.store.append(make_record(time.time()))
+        record = make_record(time.time())
+        record["heater"] = {
+            "relayStatus": "off",
+            "enabled": True,
+            "controlReason": "automatic_control",
+            "targetTemperatureC": 21.0,
+        }
+        self.store.append(record)
 
         response = self.client.get("/api/v1/status")
 
@@ -49,6 +70,8 @@ class ClimateApiTests(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data["reading"]["temperatureC"], 21.25)
         self.assertEqual(data["reading"]["humidityPercent"], 48.5)
+        self.assertEqual(data["heater"]["relayStatus"], "off")
+        self.assertEqual(data["heater"]["targetTemperatureC"], 21.0)
 
     def test_graph_returns_individual_saved_measurements(self):
         sampled_at = time.time() - 5
@@ -65,6 +88,41 @@ class ClimateApiTests(unittest.TestCase):
 
     def test_graph_rejects_unsupported_range(self):
         response = self.client.get("/api/v1/readings?hours=2")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_target_temperature_is_forwarded_to_esp_and_returned(self):
+        climate_api = FakeClimateApi()
+        self.app.extensions["climate_sensor"] = climate_api
+
+        response = self.client.post(
+            "/api/v1/heater/target",
+            json={"targetTemperatureC": 22.5},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(climate_api.target_temperature, 22.5)
+        self.assertEqual(
+            response.get_json()["heater"]["targetTemperatureC"], 22.5
+        )
+
+    def test_target_temperature_rejects_out_of_range_value(self):
+        climate_api = FakeClimateApi()
+        self.app.extensions["climate_sensor"] = climate_api
+
+        response = self.client.post(
+            "/api/v1/heater/target",
+            json={"targetTemperatureC": 36},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(climate_api.target_temperature, 21.0)
+
+    def test_target_temperature_rejects_unknown_fields(self):
+        response = self.client.post(
+            "/api/v1/heater/target",
+            json={"targetTemperatureC": 22, "heaterEnabled": True},
+        )
 
         self.assertEqual(response.status_code, 400)
 

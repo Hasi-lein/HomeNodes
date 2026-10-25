@@ -31,6 +31,40 @@
         </article>
       </section>
 
+      <section class="heater-card" aria-labelledby="heater-heading">
+        <div class="heater-heading">
+          <div>
+            <p class="eyebrow">HEIZUNGSSTEUERUNG</p>
+            <h2 id="heater-heading">Infrarot-Heizung</h2>
+          </div>
+          <span id="heater-relay" class="heater-badge" role="status">Status wird geladen …</span>
+        </div>
+        <div class="heater-details">
+          <div class="heater-detail">
+            <span class="detail-label">Automatikfreigabe</span>
+            <strong id="heater-enabled">—</strong>
+          </div>
+          <div class="heater-detail">
+            <span class="detail-label">Regelung</span>
+            <strong id="heater-reason">—</strong>
+          </div>
+          <div class="heater-detail">
+            <span class="detail-label">Solltemperatur</span>
+            <strong id="heater-target-current">—</strong>
+          </div>
+        </div>
+        <form id="target-form" class="target-form">
+          <label for="target-temperature">Solltemperatur ändern</label>
+          <div class="target-controls">
+            <input id="target-temperature" name="targetTemperatureC" type="number"
+              min="5" max="35" step="0.5" required inputmode="decimal">
+            <span>°C</span>
+            <button id="save-target" type="submit">Solltemperatur speichern</button>
+          </div>
+          <p id="target-message" class="target-message" aria-live="polite"></p>
+        </form>
+      </section>
+
       <section class="chart-card" aria-labelledby="chart-heading">
         <div class="chart-heading">
           <div>

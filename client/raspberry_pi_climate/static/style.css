@@ -80,7 +80,8 @@ h1 {
 }
 
 .reading-card,
-.chart-card {
+.chart-card,
+.heater-card {
   border: 1px solid #e7ece8;
   border-radius: 18px;
   background: #fff;
@@ -121,6 +122,110 @@ h1 {
 
 .chart-card {
   padding: 25px 25px 16px;
+}
+
+.heater-card {
+  margin: 0 0 20px;
+  padding: 24px 25px;
+}
+
+.heater-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.heater-heading h2 {
+  margin-bottom: 0;
+}
+
+.heater-badge {
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: #edf0ee;
+  color: #687870;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.heater-badge.is-on {
+  background: #f9e8e4;
+  color: #a33b2a;
+}
+
+.heater-badge.is-off {
+  background: #e9eeeb;
+  color: #52645a;
+}
+
+.heater-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.heater-detail {
+  display: grid;
+  gap: 7px;
+}
+
+.detail-label,
+.target-form label {
+  color: #687870;
+  font-size: 0.82rem;
+}
+
+.heater-detail strong {
+  font-size: 0.96rem;
+}
+
+.target-form {
+  border-top: 1px solid #e9eeeb;
+  padding-top: 17px;
+}
+
+.target-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.target-controls input {
+  width: 110px;
+  padding: 9px 10px;
+  border: 1px solid #dce5df;
+  border-radius: 9px;
+  color: #20302a;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.target-controls button {
+  margin-left: auto;
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 9px;
+  background: #356746;
+  color: #fff;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.target-controls button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.target-message {
+  min-height: 1.2em;
+  margin: 9px 0 0;
+  color: #52645a;
+  font-size: 0.82rem;
 }
 
 .chart-heading {
@@ -246,6 +351,28 @@ footer {
 
   .chart-card {
     padding: 18px 14px 12px;
+  }
+
+  .heater-card {
+    padding: 18px 14px;
+  }
+
+  .heater-details {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 10px;
+  }
+
+  .heater-details .heater-detail:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .target-controls {
+    flex-wrap: wrap;
+  }
+
+  .target-controls button {
+    width: 100%;
+    margin: 4px 0 0;
   }
 
   .chart-wrap {

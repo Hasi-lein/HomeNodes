@@ -4,6 +4,14 @@ const sampleTimeElement = document.querySelector("#sample-time");
 const connectionElement = document.querySelector("#connection");
 const rangeElement = document.querySelector("#range");
 const chartMessageElement = document.querySelector("#chart-message");
+const heaterRelayElement = document.querySelector("#heater-relay");
+const heaterEnabledElement = document.querySelector("#heater-enabled");
+const heaterReasonElement = document.querySelector("#heater-reason");
+const heaterTargetElement = document.querySelector("#heater-target-current");
+const targetForm = document.querySelector("#target-form");
+const targetInput = document.querySelector("#target-temperature");
+const targetSaveButton = document.querySelector("#save-target");
+const targetMessageElement = document.querySelector("#target-message");
 const tooltipElement = document.querySelector("#chart-tooltip");
 const canvas = document.querySelector("#chart");
 const context = canvas.getContext("2d");
@@ -17,6 +25,16 @@ const colors = {
 
 let chartPoints = [];
 let chartGeometry = null;
+
+const controlReasons = {
+  automatic_control: "Automatik aktiv",
+  disabled_by_api: "Durch API deaktiviert",
+  clock_not_synchronized: "Uhrzeit nicht synchronisiert",
+  outside_heating_hours: "Außerhalb der Heizzeiten",
+  victron_data_unavailable: "Victron-Daten fehlen oder sind veraltet",
+  sensor_data_unavailable: "Sensordaten fehlen oder sind veraltet",
+  inverter_not_in_inverter_only_mode: "Wechselrichter-Modus erlaubt kein Heizen",
+};
 
 function formatTime(value) {
   return new Date(value).toLocaleString("de-DE", {
@@ -33,6 +51,30 @@ function setConnection(message, isError = false) {
   connectionElement.classList.toggle("error", isError);
 }
 
+function updateHeater(heater) {
+  if (!heater) {
+    heaterRelayElement.textContent = "Warte auf ESP32";
+    heaterRelayElement.classList.remove("is-on", "is-off");
+    heaterEnabledElement.textContent = "—";
+    heaterReasonElement.textContent = "—";
+    heaterTargetElement.textContent = "—";
+    return;
+  }
+
+  const isOn = heater.relayStatus === "on";
+  heaterRelayElement.textContent = isOn ? "Relais EIN" : "Relais AUS";
+  heaterRelayElement.classList.toggle("is-on", isOn);
+  heaterRelayElement.classList.toggle("is-off", !isOn);
+  heaterEnabledElement.textContent = heater.enabled ? "Freigegeben" : "Deaktiviert";
+  heaterReasonElement.textContent =
+    controlReasons[heater.controlReason] || heater.controlReason || "Unbekannt";
+  heaterTargetElement.textContent =
+    `${Number(heater.targetTemperatureC).toFixed(1)} °C`;
+  if (document.activeElement !== targetInput) {
+    targetInput.value = Number(heater.targetTemperatureC).toFixed(1);
+  }
+}
+
 async function loadStatus() {
   try {
     const response = await fetch("/api/v1/status", { cache: "no-store" });
@@ -40,6 +82,7 @@ async function loadStatus() {
       throw new Error(`Status HTTP ${response.status}`);
     }
     const data = await response.json();
+    updateHeater(data.heater);
     const reading = data.reading;
     if (reading) {
       temperatureElement.textContent = `${reading.temperatureC.toFixed(1)} °C`;
@@ -60,6 +103,37 @@ async function loadStatus() {
     }
   } catch (error) {
     setConnection(`Verbindung fehlgeschlagen: ${error.message}`, true);
+  }
+}
+
+async function saveTargetTemperature(event) {
+  event.preventDefault();
+  targetMessageElement.textContent = "";
+  const targetTemperatureC = Number(targetInput.value);
+  if (!Number.isFinite(targetTemperatureC) || targetTemperatureC < 5 || targetTemperatureC > 35) {
+    targetMessageElement.textContent = "Bitte einen Wert zwischen 5 und 35 °C eingeben.";
+    return;
+  }
+
+  targetSaveButton.disabled = true;
+  targetMessageElement.textContent = "Speichere am ESP32 …";
+  try {
+    const response = await fetch("/api/v1/heater/target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ targetTemperatureC }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    updateHeater(data.heater);
+    targetMessageElement.textContent =
+      `Solltemperatur auf ${Number(data.heater.targetTemperatureC).toFixed(1)} °C gesetzt.`;
+  } catch (error) {
+    targetMessageElement.textContent = `Speichern fehlgeschlagen: ${error.message}`;
+  } finally {
+    targetSaveButton.disabled = false;
   }
 }
 
@@ -255,6 +329,7 @@ async function refresh() {
 }
 
 rangeElement.addEventListener("change", loadGraph);
+targetForm.addEventListener("submit", saveTargetTemperature);
 canvas.addEventListener("pointermove", updateTooltip);
 canvas.addEventListener("pointerleave", () => {
   tooltipElement.hidden = true;

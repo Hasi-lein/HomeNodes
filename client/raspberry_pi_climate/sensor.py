@@ -1,15 +1,20 @@
+from __future__ import annotations
+
 import base64
 import json
 import math
 import ssl
+from urllib.parse import urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 MAX_RESPONSE_BYTES = 64 * 1024
+MIN_TARGET_TEMPERATURE_C = 5.0
+MAX_TARGET_TEMPERATURE_C = 35.0
 
 
-def decode_status_response(response: bytes) -> tuple[float, float]:
+def decode_status_response(response: bytes) -> dict[str, object]:
     try:
         payload = json.loads(response)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -60,7 +65,54 @@ def decode_status_response(response: bytes) -> tuple[float, float]:
     ):
         raise RuntimeError("ESP32 returned an invalid relative humidity")
 
-    return float(temperature), float(humidity)
+    client = payload.get("client")
+    if not isinstance(client, dict):
+        raise RuntimeError("ESP32 status response has no client object")
+    temperature_control = client.get("temperatureControl")
+    if not isinstance(temperature_control, dict):
+        raise RuntimeError("ESP32 status response has no temperature control state")
+    target_temperature = temperature_control.get("targetTemperatureC")
+    if (
+        isinstance(target_temperature, bool)
+        or not isinstance(target_temperature, (int, float))
+        or not math.isfinite(target_temperature)
+    ):
+        raise RuntimeError("ESP32 returned an invalid thermostat target")
+
+    actuators = payload.get("actuators")
+    if not isinstance(actuators, list):
+        raise RuntimeError("ESP32 status response has no actuators array")
+    heater = next(
+        (
+            item
+            for item in actuators
+            if isinstance(item, dict)
+            and item.get("id") == "infrared-heater-relay"
+        ),
+        None,
+    )
+    if heater is None:
+        heater = next(
+            (
+                item
+                for item in actuators
+                if isinstance(item, dict) and item.get("type") == "relay"
+            ),
+            None,
+        )
+    if heater is None or heater.get("status") not in {"on", "off"}:
+        raise RuntimeError("ESP32 status response has no valid heater relay status")
+
+    return {
+        "temperatureC": float(temperature),
+        "humidityPercent": float(humidity),
+        "heater": {
+            "relayStatus": heater["status"],
+            "enabled": client.get("heaterEnabled") is True,
+            "controlReason": client.get("controlReason", "unknown"),
+            "targetTemperatureC": float(target_temperature),
+        },
+    }
 
 
 class Esp32ClimateApi:
@@ -77,18 +129,35 @@ class Esp32ClimateApi:
         if not username or not password:
             raise ValueError("ESP32 API username and password must be configured")
         self.status_url = status_url
+        parsed_url = urlsplit(status_url)
+        if parsed_url.path.rstrip("/") != "/api/v1/status":
+            raise ValueError("ESP32_STATUS_URL must end in /api/v1/status")
+        self.settings_url = urlunsplit(
+            (
+                parsed_url.scheme,
+                parsed_url.netloc,
+                "/api/v1/settings",
+                "",
+                "",
+            )
+        )
         self.authorization = "Basic " + base64.b64encode(
             f"{username}:{password}".encode("utf-8")
         ).decode("ascii")
         self.tls_context = ssl.create_default_context(cafile=ca_certificate_path)
         self.timeout_seconds = timeout_seconds
 
-    def read(self) -> tuple[float, float]:
+    def _request_json(
+        self, url: str, method: str = "GET", body: bytes | None = None
+    ) -> dict[str, object]:
         request = Request(
-            self.status_url,
+            url,
+            data=body,
+            method=method,
             headers={
                 "Accept": "application/json",
                 "Authorization": self.authorization,
+                **({"Content-Type": "application/json"} if body is not None else {}),
             },
         )
         try:
@@ -111,4 +180,41 @@ class Esp32ClimateApi:
 
         if len(body) > MAX_RESPONSE_BYTES:
             raise RuntimeError("ESP32 status response exceeds the 64 KiB limit")
-        return decode_status_response(body)
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("ESP32 returned invalid JSON") from error
+        if not isinstance(payload, dict):
+            raise RuntimeError("ESP32 response must be a JSON object")
+        if "error" in payload:
+            raise RuntimeError(f"ESP32 rejected settings request: {payload['error']}")
+        return payload
+
+    def read(self) -> dict[str, object]:
+        payload = self._request_json(self.status_url)
+        return self._decode_payload(payload)
+
+    @staticmethod
+    def _decode_payload(payload: dict[str, object]) -> dict[str, object]:
+        return decode_status_response(
+            json.dumps(payload, allow_nan=False).encode("utf-8")
+        )
+
+    def set_target_temperature(self, target_temperature_c: float) -> dict[str, object]:
+        if (
+            not math.isfinite(target_temperature_c)
+            or target_temperature_c < MIN_TARGET_TEMPERATURE_C
+            or target_temperature_c > MAX_TARGET_TEMPERATURE_C
+        ):
+            raise ValueError("Target temperature must be between 5 and 35 °C")
+
+        payload = self._request_json(
+            self.settings_url,
+            method="POST",
+            body=json.dumps(
+                {"targetTemperatureC": target_temperature_c},
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8"),
+        )
+        return self._decode_payload(payload)["heater"]
