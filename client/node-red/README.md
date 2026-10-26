@@ -101,7 +101,8 @@ authentication setting protects every HTTP In route in this Node-RED runtime.
 Restrict access to the automation LAN/firewall as appropriate. The ESP32
 validates the HTTPS server certificate and hostname. Put the trusted
 certificate/CA, endpoint URL and Basic Auth credentials in the ignored local
-file `client/esp32_relay/secrets.h`; do not disable certificate verification.
+file `client/esp_32_climate_controll/secrets.h`; do not disable certificate
+verification.
 The certificate SAN must match the hostname in that URL.
 
 For example, from a machine that trusts the certificate:

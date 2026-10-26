@@ -46,17 +46,17 @@ Copy the ESP32's **public server certificate** from the Mac to the Pi. Run
 this on the Mac from the HomeNodes repository:
 
 ```sh
-scp client/esp32_relay/esp32-relay-cert.pem \
-  junge@junge:/home/junge/HomeNodes/client/raspberry_pi_climate/certs/esp32-relay-cert.pem
+scp client/esp_32_climate_controll/esp32-relay-cert.pem \
+  junge@junge:/home/junge/HomeNodes/controller/raspberry_pi_climate/certs/esp32-relay-cert.pem
 ```
 
 The certificate file is local and ignored by Git; it must already exist in
-`client/esp32_relay/`. Do not copy the ESP32 private key.
+`client/esp_32_climate_controll/`. Do not copy the ESP32 private key.
 
 On the Pi, create the application configuration from the template:
 
 ```sh
-cd /home/junge/HomeNodes/client/raspberry_pi_climate
+cd /home/junge/HomeNodes/controller/raspberry_pi_climate
 cp .env.example .env
 chmod 600 .env
 nano .env
@@ -84,7 +84,7 @@ address.
 To copy the public dashboard CA certificate to a Mac, run:
 
 ```sh
-scp junge@junge:HomeNodes/client/raspberry_pi_climate/certs/ca.crt \
+scp junge@junge:HomeNodes/controller/raspberry_pi_climate/certs/ca.crt \
   ~/Downloads/homenodes-ca.crt
 ```
 
@@ -97,7 +97,7 @@ certificate** to **Always Trust**, and confirm.
 On the Pi:
 
 ```sh
-cd /home/junge/HomeNodes/client/raspberry_pi_climate
+cd /home/junge/HomeNodes/controller/raspberry_pi_climate
 docker compose up --build -d
 docker compose logs -f
 ```

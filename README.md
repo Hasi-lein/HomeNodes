@@ -34,12 +34,13 @@ not yet been built or tested on hardware.
 - [`Doku/miro_export.pdf`](Doku/miro_export.pdf) — original Miro PDF export,
   retained as a source reference. The original export is in German and includes
   diagrams of the home's electrical installation.
-- [`client/esp32_relay/`](client/esp32_relay/) — ESP32-WROOM-32 relay
+- [`client/esp_32_climate_controll/`](client/esp_32_climate_controll/) — ESP32-WROOM-32 climate and relay
   prototype; polls Venus OS Node-RED, runs relay logic locally, and exposes
   authenticated HTTPS status/control endpoints.
-- [`client/raspberry_pi_climate/`](client/raspberry_pi_climate/) — Dockerized
-  Python client for a Raspberry Pi 3B; logs DHT20 room temperature and
-  humidity to SQLite and provides a local browser dashboard.
+- [`controller/raspberry_pi_climate/`](controller/raspberry_pi_climate/) —
+  Dockerized Python app currently running on a Raspberry Pi 3B; logs room
+  climate and battery voltage to JSON Lines and provides a local browser
+  dashboard.
 - [`client/tests/`](client/tests/) — VS Code REST Client requests for exercising
   client APIs locally.
 - [`client/node-red/`](client/node-red/) — Node-RED client flow on Venus OS;
@@ -54,9 +55,9 @@ additional VS Code extension is required for the current Arduino-framework
 PlatformIO projects.
 
 PlatformIO installs the selected ESP32 platform, compiler and framework
-packages when a project is built for the first time. Open an individual
-firmware project directory, such as `client/esp32_relay_blink`, to build,
-upload and monitor that board.
+packages when a project is built for the first time. Open
+`client/esp_32_climate_controll` to build, upload and monitor the climate
+controller firmware.
 
 ## ESP32 relay prototype
 
@@ -67,14 +68,14 @@ hysteresis (ON at 53.8 V, OFF at 52.1 V) and a 21 °C thermostat target with a
 Europe/Berlin and only in Victron VE.Bus mode 2 (Inverter Only), and fails OFF
 when time or fresh Victron data is unavailable. Its HTTPS API reports status
 in client, sensor and actuator groups and lets an authorized caller enable
-automatic heating or force it off. Inverter voltage and mode are kept out of
-the API response and remain available in USB serial diagnostics. Heater
+automatic heating or force it off. Fresh battery voltage is included as a
+sensor; inverter mode remains internal and available in USB serial diagnostics. Heater
 permission and thermostat target are stored persistently; the default heater
 permission is disabled until first enabled through the API. Heater enable,
 target temperature and optional API logging can be changed through its
 authenticated API. See the relay client README for details.
 
-See [`client/esp32_relay/README.md`](client/esp32_relay/README.md) for setup
+See [`client/esp_32_climate_controll/README.md`](client/esp_32_climate_controll/README.md) for setup
 details. Do not commit `secrets.h`, private keys or real credentials.
 
 ## Safety

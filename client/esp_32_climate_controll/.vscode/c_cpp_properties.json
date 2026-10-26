@@ -8,12 +8,12 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay/src",
+                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll/src",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src",
-                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay/.pio/libdeps/esp32dev/ArduinoJson/src",
-                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay",
+                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll/.pio/libdeps/esp32dev/ArduinoJson/src",
+                "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/newlib/platform_include",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include",
                 "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/esp_additions/freertos",
@@ -245,12 +245,12 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay/src",
+                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll/src",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src",
-                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay/.pio/libdeps/esp32dev/ArduinoJson/src",
-                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp32_relay",
+                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll/.pio/libdeps/esp32dev/ArduinoJson/src",
+                    "/Users/andreaslipp/Projekte/Hausautomation/UnserHaus/client/esp_32_climate_controll",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/newlib/platform_include",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include",
                     "/Users/andreaslipp/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/esp_additions/freertos",

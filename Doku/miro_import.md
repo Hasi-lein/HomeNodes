@@ -263,7 +263,8 @@ Unavailable` if either cached Victron value is missing or older than 120
 seconds. Node-RED must provide HTTPS and HTTP Basic Authentication for its
 HTTP In endpoint. The ESP32 trusts the configured server certificate/CA and
 verifies the hostname; do not disable TLS verification. Configure the endpoint
-URL, credentials and trusted PEM locally in `client/esp32_relay/secrets.h`;
+URL, credentials and trusted PEM locally in
+`client/esp_32_climate_controll/secrets.h`;
 never commit that file.
 
 The ESP32 relay starts OFF and uses local hysteresis: ON at or above 53.8 V,
