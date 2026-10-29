@@ -37,6 +37,9 @@ not yet been built or tested on hardware.
 - [`client/esp_32_climate_controll/`](client/esp_32_climate_controll/) — ESP32-WROOM-32 climate and relay
   prototype; polls Venus OS Node-RED, runs relay logic locally, and exposes
   authenticated HTTPS status/control endpoints.
+- [`client/esp_32_terrace_cam/`](client/esp_32_terrace_cam/) — AI-Thinker
+  ESP32-CAM client for terrace motion, switched lighting, climate readings and
+  authenticated image uploads.
 - [`controller/raspberry_pi_climate/`](controller/raspberry_pi_climate/) —
   Dockerized Python app currently running on a Raspberry Pi 3B; logs room
   climate and battery voltage to JSON Lines and provides a local browser
@@ -55,9 +58,9 @@ additional VS Code extension is required for the current Arduino-framework
 PlatformIO projects.
 
 PlatformIO installs the selected ESP32 platform, compiler and framework
-packages when a project is built for the first time. Open
-`client/esp_32_climate_controll` to build, upload and monitor the climate
-controller firmware.
+packages when a project is built for the first time. Open either
+`client/esp_32_climate_controll` or `client/esp_32_terrace_cam` to build,
+upload and monitor its firmware.
 
 ## ESP32 relay prototype
 

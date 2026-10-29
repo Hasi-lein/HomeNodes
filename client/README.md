@@ -15,6 +15,8 @@ Current projects:
 - [`esp_32_climate_controll/`](esp_32_climate_controll/) — ESP32-WROOM-32
   client that polls Node-RED, controls the relay locally and exposes an
   authenticated HTTPS status/control API.
+- [`esp_32_terrace_cam/`](esp_32_terrace_cam/) — AI-Thinker ESP32-CAM client
+  for PIR-triggered lighting, climate readings and secure image uploads.
 - [`node-red/`](node-red/) — Venus OS Node-RED flow serving current Victron
   battery voltage and inverter mode to clients.
 - [`tests/`](tests/) — REST Client `.http` requests for testing the ESP32 relay

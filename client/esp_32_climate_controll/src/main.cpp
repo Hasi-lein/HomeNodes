@@ -18,11 +18,11 @@
 
 namespace {
 
-constexpr uint8_t RELAY_PIN = 13;
+constexpr uint8_t RELAY_PIN = 27;
 constexpr uint8_t RELAY_ON_LEVEL = HIGH;
 constexpr uint8_t RELAY_OFF_LEVEL = LOW;
-constexpr uint8_t DHT20_SDA_PIN = 21;
-constexpr uint8_t DHT20_SCL_PIN = 22;
+constexpr uint8_t DHT20_SDA_PIN = 13;
+constexpr uint8_t DHT20_SCL_PIN = 14;
 constexpr uint8_t DHT20_I2C_ADDRESS = 0x38;
 constexpr char DHT20_SENSOR_ID[] = "room-climate";
 constexpr char DHT20_SENSOR_NAME[] = "Temperatur und Luftfeuchtigkeit";

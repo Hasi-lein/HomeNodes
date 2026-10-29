@@ -251,17 +251,20 @@ its values are printed to the serial monitor at 115200 baud. These readings are
 currently diagnostic only: they are not included in the HTTPS API and do not
 affect heater control.
 
-Connect the DHT20 module to 3.3 V (not 5 V) and use the default I²C pins below.
+Connect the DHT20 module to 3.3 V (not 5 V) and use the shared HomeNodes I²C
+pins below. The heater relay signal moved from GPIO 13 to GPIO 27 so GPIO 13
+and 14 can be used for I²C by all ESP32 clients. Update the existing relay
+wire to GPIO 27 before deploying this firmware.
 For the initial relay test, use a single-channel relay module:
 
 | ESP32-WROOM-32 | Device | Connection |
 | --- | --- | --- |
 | 3V3 | DHT20 | `+` / VCC |
 | GND | DHT20 and relay module | `-` / GND |
-| GPIO 21 | DHT20 | SDA |
-| GPIO 22 | DHT20 | SCL |
+| GPIO 13 | DHT20 | SDA |
+| GPIO 14 | DHT20 | SCL |
 | 3V3 | Relay module | VCC |
-| GPIO 13 | Relay module | IN1 |
+| GPIO 27 | Relay module | IN1 |
 
 This assumes the module accepts 3.3 V power/logic and is active HIGH. Verify
 the exact relay module and board. Keep the heater and all mains loads

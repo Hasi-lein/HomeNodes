@@ -9,15 +9,15 @@
 #define CLIENT_ID "esp32-relay-01"
 
 // The ESP32 uses the Fritz!Box as its only NTP source (UDP port 123).
-#define NTP_SERVER "192.168.178.1"
+#define NTP_SERVER "replace-with-ntp-server-hostname-or-ip"
 
 #define NODERED_BATTERY_VOLTAGE_URL \
   "https://venus.local:1881/homenodes/v1/battery-voltage"
-#define NODERED_HTTP_USER "HomeNodes"
+#define NODERED_HTTP_USER "replace-with-username"
 #define NODERED_HTTP_PASSWORD "replace-with-a-long-unique-password"
 
 // Credentials for the ESP32 HTTPS API. Use a unique password for this client.
-#define ESP_API_USER "HomeNodes"
+#define ESP_API_USER "replace-with-username"
 #define ESP_API_PASSWORD "replace-with-a-different-long-unique-password"
 
 // Paste the complete PEM certificate, including the BEGIN/END lines.

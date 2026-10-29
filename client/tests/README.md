@@ -1,7 +1,7 @@
-# ESP32 relay API tests
+# ESP32 client API tests
 
-The `esp32_relay.http` file contains Visual Studio Code REST Client requests
-for the ESP32 relay client's HTTPS API.
+The `esp32_relay.http` and `esp32_terrace_cam.http` files contain Visual Studio
+Code REST Client requests for the ESP32 HTTPS APIs.
 
 1. Install the **REST Client** extension (`humao.rest-client`) if needed.
 2. Open `esp32_relay.http` and set `@host` to the ESP32's mDNS name or IP.
@@ -17,6 +17,11 @@ for the ESP32 relay client's HTTPS API.
    (`{"targetTemperatureC":21}`; 5-35 °C), heater permission
    (`{"heaterEnabled":true}`), or API logging
    (`{"apiLoggingEnabled":true}`). Send exactly one setting per request.
+
+For the terrace camera, open `esp32_terrace_cam.http` and set the host when
+prompted. It covers status, timed/automatic/off light modes, automatic camera
+mode, and manual three-image capture. Manual capture returns `202 Accepted`;
+query status to check progress or upload errors.
 
 An `on` request only enables the automatic control; time, voltage, and
 Victron-mode and temperature requirements still apply. The relay itself always

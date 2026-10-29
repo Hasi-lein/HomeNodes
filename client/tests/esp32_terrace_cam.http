@@ -1,0 +1,71 @@
+@host = homenodes-terrace-cam-01.local
+@username = {{$prompt 'Terrace camera API username'}}
+@password = {{$prompt 'Terrace camera API password'}}
+
+### Read camera, light, PIR and DHT20 status
+# @name status
+GET https://{{host}}/api/v1/status
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+### Turn terrace light on for 15 minutes (allowed: 1-60)
+# @name lightTimed
+POST https://{{host}}/api/v1/light
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "on",
+  "durationMinutes": 15
+}
+
+### Set motion-controlled terrace light
+# @name lightAuto
+POST https://{{host}}/api/v1/light
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "auto"
+}
+
+### Turn terrace light off
+# @name lightOff
+POST https://{{host}}/api/v1/light
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "off"
+}
+
+### Enable camera capture on PIR motion
+# @name cameraAuto
+POST https://{{host}}/api/v1/camera
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "auto"
+}
+
+### Disable automatic camera capture
+# @name cameraOff
+POST https://{{host}}/api/v1/camera
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "mode": "off"
+}
+
+### Queue three manual images; check status for progress
+# @name captureThreeImages
+POST https://{{host}}/api/v1/camera/capture
+Authorization: Basic {{username}} {{password}}
+Accept: application/json

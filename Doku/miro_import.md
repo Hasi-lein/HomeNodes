@@ -281,8 +281,10 @@ invalid response switches the relay OFF. The ESP32 uses the Fritz!Box at
 The Fritz!Box must provide NTP service on the LAN. Voltage is an approximate
 indicator rather than a direct SOC reading; validate the thresholds and
 fail-safe behavior before enabling the heater.
-The sketch retains GPIO 13 and active-HIGH relay logic. Verify this against
-the exact board pinout and relay module before use.
+The ESP32-WROOM-32 climate firmware uses GPIO 27 for its active-HIGH heater
+relay and shared GPIO 13/14 for DHT20 I²C. The AI-Thinker terrace-camera client
+also uses GPIO 13/14 for I²C; its light relay uses GPIO 4 and PIR uses GPIO 15.
+Verify the actual relay module's trigger polarity and board pinout before use.
 
 The hardware photo shows an ESP32-WROOM-32 development board and a single
 relay module with `VCC`, `IN1` and `GND` control labels. The first relay test
